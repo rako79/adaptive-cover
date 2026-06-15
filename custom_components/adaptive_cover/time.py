@@ -14,11 +14,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up the time platform."""
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
+
     # Sprawdzamy czy użytkownik skonfigurował encję Workday
     workday_entity = config_entry.options.get(CONF_WORKDAY_ENTITY)
     entities = []
-    
+
     if workday_entity:
         # Jeśli tak: dodajemy dwa osobne czasy
         entities.append(AdaptiveCoverTimeEntity(coordinator, config_entry, CONF_START_TIME_WORKDAY, "Otwarcie (Dni robocze)", "07:00:00", "mdi:briefcase-clock"))
@@ -26,7 +26,7 @@ async def async_setup_entry(
     else:
         # Jeśli nie: dodajemy tylko jeden, uniwersalny czas otwarcia
         entities.append(AdaptiveCoverTimeEntity(coordinator, config_entry, CONF_START_TIME_WORKDAY, "Czas otwarcia (Codziennie)", "07:00:00", "mdi:clock-outline"))
-        
+
     async_add_entities(entities)
 
 class AdaptiveCoverTimeEntity(CoordinatorEntity, TimeEntity):
@@ -35,6 +35,7 @@ class AdaptiveCoverTimeEntity(CoordinatorEntity, TimeEntity):
     _attr_has_entity_name = True
 
     def __init__(self, coordinator, config_entry, key, name, default_time, icon):
+        """Initialize the time entity."""
         super().__init__(coordinator)
         self.config_entry = config_entry
         self._key = key
@@ -47,12 +48,14 @@ class AdaptiveCoverTimeEntity(CoordinatorEntity, TimeEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Return device info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.config_entry.entry_id)},
             name=self.config_entry.data.get("name", "Adaptive Cover"),
         )
 
     async def async_set_value(self, value: dt.time) -> None:
+        """Set and persist the configured time."""
         self._attr_native_value = value
         new_options = dict(self.config_entry.options)
         new_options[self._key] = value.isoformat()

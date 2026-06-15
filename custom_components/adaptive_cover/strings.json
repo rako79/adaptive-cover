@@ -32,7 +32,8 @@
           "manual_override_duration": "The duration of manual control before resetting to automatic control",
           "manual_override_reset": "Option to reset the manual override duration after each manual adjustment; if disabled, the duration only applies to the first manual adjustment",
           "end_time": "Ending time for each day; after this time, the cover will remain stationary",
-          "end_entity": "Entity representing ending time state, overriding the fixed end time set above. Useful for automating the end time with an entity"
+          "end_entity": "Entity representing ending time state, overriding the fixed end time set above. Useful for automating the end time with an entity",
+          "window_open_action": "Pause movement, move to the configured safe position, block only closing movements, or pause and automatically return after the window/door sensor closes."
         }
       },
       "vertical": {
@@ -106,7 +107,9 @@
         "title": "Climate settings"
       },
       "weather": {
-        "data": { "weather_state": "Weather Conditions" },
+        "data": {
+          "weather_state": "Weather Conditions"
+        },
         "data_description": {
           "weather_state": "Choose the weather conditions that enable automatic window control."
         },
@@ -260,7 +263,8 @@
           "manual_override_duration": "The duration of manual control before resetting to automatic control",
           "manual_override_reset": "Option to reset the manual override duration after each manual adjustment; if disabled, the duration only applies to the first manual adjustment",
           "end_time": "Ending time for each day; after this time, the cover will remain stationary",
-          "end_entity": "Ensure that the position is consistently adjusted to the default sunset setting by the end time. This is particularly beneficial when the end time precedes the actual sunset."
+          "end_entity": "Ensure that the position is consistently adjusted to the default sunset setting by the end time. This is particularly beneficial when the end time precedes the actual sunset.",
+          "window_open_action": "Pause movement, move to the configured safe position, block only closing movements, or pause and automatically return after the window/door sensor closes."
         }
       },
       "vertical": {
@@ -334,7 +338,9 @@
         "title": "Climate settings"
       },
       "weather": {
-        "data": { "weather_state": "Weather Conditions" },
+        "data": {
+          "weather_state": "Weather Conditions"
+        },
         "data_description": {
           "weather_state": "Choose the weather conditions that enable automatic window control."
         },
@@ -462,6 +468,14 @@
       "options": {
         "mode1": "single direction (0% = closed / 100% = open)",
         "mode2": "bi-directional (0% = closed / 50% = open / 100% = closed)"
+      }
+    },
+    "window_open_action": {
+      "options": {
+        "pause": "Pause movement",
+        "move_to_position": "Move to safe position",
+        "block_closing_only": "Block closing only",
+        "return_after_close": "Pause and return after close"
       }
     }
   }

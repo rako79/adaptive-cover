@@ -73,9 +73,19 @@ CONF_START_TIME_WORKDAY = "start_time_workday"
 CONF_START_TIME_WEEKEND = "start_time_weekend"
 CONF_CLOSE_SUNSET_OFFSET = "close_sunset_offset"
 CONF_RAIN_NIGHT_ONLY = "rain_night_only"
+CONF_WEATHER_FORECAST_TEMP = "weather_forecast_temp"
+CONF_RAIN_POSITION = "rain_position"
+CONF_WIND_POSITION = "wind_position"
+CONF_LUX_THRESHOLD_ON = "lux_threshold_on"
+CONF_LUX_THRESHOLD_OFF = "lux_threshold_off"
+CONF_IRRADIANCE_THRESHOLD_ON = "irradiance_threshold_on"
+CONF_IRRADIANCE_THRESHOLD_OFF = "irradiance_threshold_off"
 
 CONF_DELTA_POSITION = "delta_position"
 CONF_DELTA_TIME = "delta_time"
+CONF_GLOBAL_COOLDOWN = "global_cooldown"
+CONF_MAX_MOVES_PER_HOUR = "max_moves_per_hour"
+CONF_MAX_MOVES_PER_DAY = "max_moves_per_day"
 CONF_START_TIME = "start_time"
 CONF_START_ENTITY = "start_entity"
 CONF_END_TIME = "end_time"
@@ -87,8 +97,21 @@ CONF_MANUAL_THRESHOLD = "manual_threshold"
 CONF_MANUAL_IGNORE_INTERMEDIATE = "manual_ignore_intermediate"
 
 CONF_WINDOW_ENTITY = "window_entity"
+CONF_WINDOW_OPEN_ACTION = "window_open_action"
+CONF_WINDOW_OPEN_POSITION = "window_open_position"
 CONF_RAIN_ENTITY = "rain_entity"
 CONF_WIND_ENTITY = "wind_entity"
+
+WINDOW_ACTION_PAUSE = "pause"
+WINDOW_ACTION_MOVE_TO_POSITION = "move_to_position"
+WINDOW_ACTION_BLOCK_CLOSING_ONLY = "block_closing_only"
+WINDOW_ACTION_RETURN_AFTER_CLOSE = "return_after_close"
+WINDOW_OPEN_ACTIONS = [
+    WINDOW_ACTION_PAUSE,
+    WINDOW_ACTION_MOVE_TO_POSITION,
+    WINDOW_ACTION_BLOCK_CLOSING_ONLY,
+    WINDOW_ACTION_RETURN_AFTER_CLOSE,
+]
 
 STRATEGY_MODE_BASIC = "basic"
 STRATEGY_MODE_CLIMATE = "climate"

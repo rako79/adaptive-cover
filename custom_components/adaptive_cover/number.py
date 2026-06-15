@@ -22,12 +22,13 @@ class AdaptiveCoverOffsetNumber(CoordinatorEntity, NumberEntity):
     _attr_translation_key = "close_sunset_offset"
 
     def __init__(self, coordinator, config_entry):
+        """Initialize the sunset offset number entity."""
         super().__init__(coordinator)
         self.config_entry = config_entry
         self._key = CONF_CLOSE_SUNSET_OFFSET
         self._attr_unique_id = f"{config_entry.entry_id}_{self._key}"
         self._attr_icon = "mdi:weather-sunset-down"
-        
+
         self._attr_native_min_value = -120.0
         self._attr_native_max_value = 120.0
         self._attr_native_step = 5.0
@@ -38,12 +39,14 @@ class AdaptiveCoverOffsetNumber(CoordinatorEntity, NumberEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Return device info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.config_entry.entry_id)},
             name=self.config_entry.data.get("name", "Adaptive Cover"),
         )
 
     async def async_set_native_value(self, value: float) -> None:
+        """Set the sunset close offset."""
         self._attr_native_value = value
         new_options = dict(self.config_entry.options)
         new_options[self._key] = int(value)

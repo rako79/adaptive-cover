@@ -1,4 +1,5 @@
 """Select platform for Adaptive Cover."""
+import datetime as dt
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -9,12 +10,12 @@ from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN
 
 OPTIONS = [
-    "none", 
-    "15_min", 
-    "30_min", 
-    "60_min", 
-    "120_min", 
-    "240_min", 
+    "none",
+    "15_min",
+    "30_min",
+    "60_min",
+    "120_min",
+    "240_min",
     "sunset"
 ]
 
@@ -40,11 +41,11 @@ class AdaptiveCoverOverrideSelect(CoordinatorEntity, SelectEntity):
         self._attr_unique_id = f"{config_entry.entry_id}_override_duration"
         self._attr_icon = "mdi:timer-cog"
         self._attr_options = OPTIONS
-        
+
         # Pobieramy to, co jest aktualnie zapisane w opcjach integracji
         duration_dict = config_entry.options.get("manual_override_duration", {"minutes": 15})
         minutes = duration_dict.get("minutes", 15)
-        
+
         mapping_rev = {
             0: "none",
             15: "15_min",
@@ -58,6 +59,7 @@ class AdaptiveCoverOverrideSelect(CoordinatorEntity, SelectEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Return device info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self.config_entry.entry_id)},
             name=self.config_entry.data.get("name", "Adaptive Cover"),
@@ -66,7 +68,7 @@ class AdaptiveCoverOverrideSelect(CoordinatorEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Change the selected option and SAVE permanently."""
         self._attr_current_option = option
-        
+
         mapping = {
             "none": 0,
             "15_min": 15,
@@ -77,9 +79,18 @@ class AdaptiveCoverOverrideSelect(CoordinatorEntity, SelectEntity):
             "sunset": 9999
         }
         minutes = mapping.get(option, 60)
-        
+        duration_minutes = minutes
+        if option == "sunset":
+            end_time = self.coordinator._end_time
+            if end_time is not None:
+                now = dt.datetime.now(dt.UTC)
+                end_utc = end_time if end_time.tzinfo else end_time.replace(tzinfo=dt.UTC)
+                duration_minutes = max(0, int((end_utc - now).total_seconds() / 60))
+
         new_options = dict(self.config_entry.options)
         new_options["manual_override_duration"] = {"minutes": minutes}
-        
+
         self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
+        self.coordinator.manager.reset_duration = dt.timedelta(minutes=duration_minutes)
         self.async_write_ha_state()
+        await self.coordinator.async_refresh()

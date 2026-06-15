@@ -254,7 +254,7 @@ class AdaptiveCoverControlSensorEntity(
             name=self._name,
             model=self._device_name,
         )
-        
+
 class AdaptiveCoverExplainSensorEntity(
     CoordinatorEntity[AdaptiveDataUpdateCoordinator], SensorEntity
 ):
@@ -386,11 +386,13 @@ class AdaptiveCoverScheduleSensorEntity(
     def __init__(
         self, unique_id: str, hass, config_entry, name: str, coordinator: AdaptiveDataUpdateCoordinator,
     ) -> None:
+        """Initialize the schedule sensor."""
         super().__init__(coordinator=coordinator)
         self.coordinator = coordinator
         self._attr_unique_id = f"{unique_id}_schedule"
         self.config_entry = config_entry
         self.hass = hass
+        self._name = name
         self._device_id = unique_id
         self.type = {
             "cover_blind": "Vertical",
@@ -405,10 +407,12 @@ class AdaptiveCoverScheduleSensorEntity(
 
     @property
     def native_value(self) -> str:
+        """Return the schedule sensor state."""
         return "Aktywny"
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Return device info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
             name=self._name,
@@ -417,23 +421,24 @@ class AdaptiveCoverScheduleSensorEntity(
 
     @property
     def extra_state_attributes(self):
+        """Return today's schedule details."""
         is_workday = True
         workday_entity = self.config_entry.options.get(CONF_WORKDAY_ENTITY)
-        
+
         if workday_entity:
             state = self.hass.states.get(workday_entity)
             if state:
                 is_workday = state.state == "on"
-        
+
         start_w = self.config_entry.options.get(CONF_START_TIME_WORKDAY, "07:00:00")
         start_we = self.config_entry.options.get(CONF_START_TIME_WEEKEND, "09:00:00")
         offset = self.config_entry.options.get(CONF_CLOSE_SUNSET_OFFSET, 0)
-        
+
         end_time_str = "Brak"
         if self.coordinator._end_time:
             local_end = dt_util.as_local(self.coordinator._end_time)
             end_time_str = local_end.strftime("%H:%M")
-            
+
         return {
             "Dzisiaj dzień roboczy": "Tak" if is_workday else "Nie",
             "Godzina otwarcia (Dzisiaj)": start_w if is_workday else start_we,

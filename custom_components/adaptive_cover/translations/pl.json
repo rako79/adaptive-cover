@@ -23,7 +23,12 @@
           "manual_ignore_intermediate": "Ignoruj pozycje pośrednie podczas ręcznego sterowania (otwieranie i zamykanie)",
           "workday_entity": "Sesnor dni roboczych (Opcjonalnie)",
           "window_entity": "Czujnik otwarcia okna / balkonu (Opcjonalnie)",
-          "return_sunset": "Zawsze ustawiaj domyślną pozycję po zachodzie słońca; Przydatne, gdy czas zakończenia wypada przed faktycznym zachodem słońca"
+          "return_sunset": "Zawsze ustawiaj domyślną pozycję po zachodzie słońca; Przydatne, gdy czas zakończenia wypada przed faktycznym zachodem słońca",
+          "global_cooldown": "Globalny odstęp między ruchami",
+          "max_moves_per_hour": "Maksymalna liczba ruchów na godzinę",
+          "max_moves_per_day": "Maksymalna liczba ruchów na dobę",
+          "window_open_action": "Działanie przy otwartym oknie/balkonie",
+          "window_open_position": "Pozycja przy otwartym oknie/balkonie"
         },
         "data_description": {
           "delta_position": "Minimalna wymagana zmiana pozycji, zanim roleta zostanie przestawiona",
@@ -33,7 +38,12 @@
           "manual_override_duration": "Czas, po którym roleta wróci do pracy automatycznej po ręcznym ruchu. Możesz to zmienić również na Dashboardzie.",
           "manual_override_reset": "Opcja resetowania odliczania czasu po każdej ręcznej zmianie; jeśli wyłączona, czas dotyczy tylko pierwszej zmiany",
           "end_time": "Czas zakończenia dla każdego dnia; po tym czasie roleta pozostanie w bezruchu",
-          "end_entity": "Upewnij się, że o czasie zakończenia pozycja zostanie zawsze dostosowana do ustawienia po zachodzie słońca."
+          "end_entity": "Upewnij się, że o czasie zakończenia pozycja zostanie zawsze dostosowana do ustawienia po zachodzie słońca.",
+          "global_cooldown": "Minimalna przerwa po dowolnym automatycznym ruchu tej samej rolety",
+          "max_moves_per_hour": "Limit bezpieczeństwa dla ruchów w ciągu godziny; 0 wyłącza limit",
+          "max_moves_per_day": "Limit bezpieczeństwa dla ruchów w ciągu doby; 0 wyłącza limit",
+          "window_open_action": "Wstrzymaj ruch, ustaw skonfigurowaną bezpieczną pozycję, blokuj tylko zamykanie albo wstrzymaj automatykę i wróć po zamknięciu czujnika okna/drzwi.",
+          "window_open_position": "Bezpieczna pozycja używana przez tryb ustawienia pozycji przy otwartym oknie"
         }
       },
       "vertical": {
@@ -102,7 +112,13 @@
           "cold_threshold": "Próg ochrony przed zimnem (°C)",
           "wind_threshold": "Próg ochrony przed wiatrem (km/h)",
           "purge_pos": "Pozycja wietrzenia nocnego (%)",
-          "rain_night_only": "Ochrona przed opadami tylko w nocy (Zignoruj deszcz w dzień)"
+          "rain_night_only": "Ochrona przed opadami tylko w nocy (Zignoruj deszcz w dzień)",
+          "lux_threshold_on": "Próg Lux ON",
+          "lux_threshold_off": "Próg Lux OFF",
+          "irradiance_threshold_on": "Próg promieniowania ON",
+          "irradiance_threshold_off": "Próg promieniowania OFF",
+          "rain_position": "Pozycja ochrony przed deszczem (%)",
+          "wind_position": "Pozycja ochrony przed wiatrem (%)"
         },
         "data_description": {
           "presence_entity": "Encja reprezentująca obecność domowników (np. group.family)",
@@ -116,13 +132,21 @@
           "irradiance_entity": "Użyj sensora promieniowania, aby określić, czy roleta powinna zredukować odblaski",
           "irradiance_threshold": "Próg dla sensora promieniowania – powyżej tej wartości odblaski będą redukowane",
           "rain_entity": "Wybierz dedykowany czujnik deszczu (priorytet nad danymi z pogody)",
-          "wind_entity": "Wybierz dedykowany wiatromierz w km/h (priorytet nad danymi z pogody)"
+          "wind_entity": "Wybierz dedykowany wiatromierz w km/h (priorytet nad danymi z pogody)",
+          "lux_threshold_on": "Górny próg wyjścia z trybu słabego światła",
+          "lux_threshold_off": "Dolny próg wejścia w tryb słabego światła",
+          "irradiance_threshold_on": "Górny próg wyjścia z trybu słabego nasłonecznienia",
+          "irradiance_threshold_off": "Dolny próg wejścia w tryb słabego nasłonecznienia",
+          "rain_position": "Pozycja używana, gdy aktywna jest ochrona przed deszczem",
+          "wind_position": "Pozycja używana, gdy aktywna jest ochrona przed wiatrem"
         },
         "description": "Skonfiguruj dodatkowe zmienne dla trybu kontroli klimatu.",
         "title": "Ustawienia Klimatyczne"
       },
       "weather": {
-        "data": { "weather_state": "Warunki Pogodowe" },
+        "data": {
+          "weather_state": "Warunki Pogodowe"
+        },
         "data_description": {
           "weather_state": "Wybierz warunki pogodowe, które pozwalają na automatyczne zasłanianie."
         },
@@ -276,7 +300,12 @@
           "manual_ignore_intermediate": "Ignoruj pozycje pośrednie (otwieranie/zamykanie) podczas ręcznej kontroli",
           "workday_entity": "Sensor dni roboczych (Opcjonalnie)",
           "window_entity": "Czujnik otwarcia okna / balkonu (Opcjonalnie)",
-          "return_sunset": "Upewnij się, że roleta zawsze powróci do nocnej pozycji docelowej na koniec dnia"
+          "return_sunset": "Upewnij się, że roleta zawsze powróci do nocnej pozycji docelowej na koniec dnia",
+          "global_cooldown": "Globalny odstęp między ruchami",
+          "max_moves_per_hour": "Maksymalna liczba ruchów na godzinę",
+          "max_moves_per_day": "Maksymalna liczba ruchów na dobę",
+          "window_open_action": "Działanie przy otwartym oknie/balkonie",
+          "window_open_position": "Pozycja przy otwartym oknie/balkonie"
         },
         "data_description": {
           "delta_position": "Minimalna wymagana zmiana %, żeby skrypt wysłał polecenie ruchu do silnika",
@@ -286,7 +315,12 @@
           "manual_override_duration": "Jak długo automatyka ma czekać po tym, gdy ktoś ręcznie ruszy roletą z przycisku na ścianie",
           "manual_override_reset": "Czy kolejny ruch ręczny ma od nowa odliczać czas pauzy automatyki?",
           "end_time": "Godzina, po której automatyka na dany dzień jest usypiana",
-          "end_entity": "Upewnij się, że roleta ustawi się na zaplanowaną pozycję dla 'zachodu słońca'."
+          "end_entity": "Upewnij się, że roleta ustawi się na zaplanowaną pozycję dla 'zachodu słońca'.",
+          "global_cooldown": "Minimalna przerwa po dowolnym automatycznym ruchu tej samej rolety",
+          "max_moves_per_hour": "Limit bezpieczeństwa dla ruchów w ciągu godziny; 0 wyłącza limit",
+          "max_moves_per_day": "Limit bezpieczeństwa dla ruchów w ciągu doby; 0 wyłącza limit",
+          "window_open_action": "Wstrzymaj ruch, ustaw skonfigurowaną bezpieczną pozycję, blokuj tylko zamykanie albo wstrzymaj automatykę i wróć po zamknięciu czujnika okna/drzwi.",
+          "window_open_position": "Bezpieczna pozycja używana przez tryb ustawienia pozycji przy otwartym oknie"
         }
       },
       "vertical": {
@@ -356,7 +390,13 @@
           "cold_threshold": "Próg ochrony przed zimnem (°C) (Zamyka rolety)",
           "wind_threshold": "Próg ochrony przed wiatrem (km/h)",
           "purge_pos": "Pozycja rolety do wietrzenia nocnego (%)",
-          "rain_night_only": "Ochrona przed opadami tylko w nocy (Zignoruj deszcz w dzień)"
+          "rain_night_only": "Ochrona przed opadami tylko w nocy (Zignoruj deszcz w dzień)",
+          "lux_threshold_on": "Próg Lux ON",
+          "lux_threshold_off": "Próg Lux OFF",
+          "irradiance_threshold_on": "Próg promieniowania ON",
+          "irradiance_threshold_off": "Próg promieniowania OFF",
+          "rain_position": "Pozycja ochrony przed deszczem (%)",
+          "wind_position": "Pozycja ochrony przed wiatrem (%)"
         },
         "data_description": {
           "presence_entity": "Jeżeli czujnik nie wykaże nikogo w domu - integracja wymusi maksymalną energooszczędność",
@@ -371,13 +411,21 @@
           "irradiance_threshold": "Zasłaniaj, gdy nagrzewanie przekroczy próg",
           "outside_threshold": "Minimalna temperatura za oknem, która zezwala na włączenie trybu chłodzenia",
           "rain_entity": "Wybierz dedykowany czujnik deszczu (priorytet nad danymi z pogody)",
-          "wind_entity": "Wybierz dedykowany wiatromierz w km/h (priorytet nad danymi z pogody)"
+          "wind_entity": "Wybierz dedykowany wiatromierz w km/h (priorytet nad danymi z pogody)",
+          "lux_threshold_on": "Górny próg wyjścia z trybu słabego światła",
+          "lux_threshold_off": "Dolny próg wejścia w tryb słabego światła",
+          "irradiance_threshold_on": "Górny próg wyjścia z trybu słabego nasłonecznienia",
+          "irradiance_threshold_off": "Dolny próg wejścia w tryb słabego nasłonecznienia",
+          "rain_position": "Pozycja używana, gdy aktywna jest ochrona przed deszczem",
+          "wind_position": "Pozycja używana, gdy aktywna jest ochrona przed wiatrem"
         },
         "description": "Skonfiguruj dodatkowe warunki, które sterują termiką Twojego domu.",
         "title": "Ustawienia Klimatyczne"
       },
       "weather": {
-        "data": { "weather_state": "Słoneczne Stany Pogodowe" },
+        "data": {
+          "weather_state": "Słoneczne Stany Pogodowe"
+        },
         "data_description": {
           "weather_state": "Jeśli w integracji pogodowej pojawi się jeden z tych stanów, system przyjmie, że zza chmur wyszło słońce."
         },
@@ -518,15 +566,29 @@
         "mode1": "Jednokierunkowy (0% = zamknięta / 100% = otwarta)",
         "mode2": "Dwukierunkowy (0% = zamknięta / 50% = otwarta / 100% = zamknięta)"
       }
+    },
+    "window_open_action": {
+      "options": {
+        "pause": "Wstrzymaj ruch",
+        "move_to_position": "Ustaw bezpieczną pozycję",
+        "block_closing_only": "Blokuj tylko zamykanie",
+        "return_after_close": "Wstrzymaj i wróć po zamknięciu"
+      }
     }
   },
   "entity": {
     "time": {
-      "start_time_workday": { "name": "Otwarcie (Dni robocze)" },
-      "start_time_weekend": { "name": "Otwarcie (Dni wolne/Weekend)" }
+      "start_time_workday": {
+        "name": "Otwarcie (Dni robocze)"
+      },
+      "start_time_weekend": {
+        "name": "Otwarcie (Dni wolne/Weekend)"
+      }
     },
     "number": {
-      "close_sunset_offset": { "name": "Przesunięcie zachodu (Zamykanie)" }
+      "close_sunset_offset": {
+        "name": "Przesunięcie zachodu (Zamykanie)"
+      }
     },
     "select": {
       "manual_override": {
@@ -543,10 +605,18 @@
       }
     },
     "sensor": {
-      "cover_position": { "name": "Pozycja" },
-      "start_sun": { "name": "Początek nasłonecznienia" },
-      "end_sun": { "name": "Koniec nasłonecznienia" },
-      "control": { "name": "Metoda sterowania" },
+      "cover_position": {
+        "name": "Pozycja"
+      },
+      "start_sun": {
+        "name": "Początek nasłonecznienia"
+      },
+      "end_sun": {
+        "name": "Koniec nasłonecznienia"
+      },
+      "control": {
+        "name": "Metoda sterowania"
+      },
       "algorithm_status": {
         "schedule": {
           "name": "Harmonogram na dzisiaj"
@@ -576,18 +646,32 @@
       }
     },
     "switch": {
-      "manual_toggle": { "name": "Blokada ręczna" },
-      "control_toggle": { "name": "Automatyka" },
-      "switch_mode": { "name": "Tryb klimatyczny" },
-      "temp_toggle": { "name": "Ochrona termiczna" },
-      "lux_toggle": { "name": "Zależność od Lux" },
-      "irradiance_toggle": { "name": "Zależność od nasłonecznienia W/m2" },
+      "manual_toggle": {
+        "name": "Blokada ręczna"
+      },
+      "control_toggle": {
+        "name": "Automatyka"
+      },
+      "switch_mode": {
+        "name": "Tryb klimatyczny"
+      },
+      "temp_toggle": {
+        "name": "Ochrona termiczna"
+      },
+      "lux_toggle": {
+        "name": "Zależność od Lux"
+      },
+      "irradiance_toggle": {
+        "name": "Zależność od nasłonecznienia W/m2"
+      },
       "strict_sun_block_toggle": {
         "name": "Letnia Blokada Słońca"
       }
     },
     "button": {
-      "reset_manual": { "name": "Reset blokady ręcznej" }
+      "reset_manual": {
+        "name": "Reset blokady ręcznej"
+      }
     }
   },
   "services": {

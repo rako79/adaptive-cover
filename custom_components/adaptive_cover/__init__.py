@@ -21,6 +21,11 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WINDOW_ENTITY,
     CONF_RAIN_ENTITY,
+    CONF_IRRADIANCE_ENTITY,
+    CONF_LUX_ENTITY,
+    CONF_OUTSIDETEMP_ENTITY,
+    CONF_START_ENTITY,
+    CONF_WORKDAY_ENTITY,
     CONF_WIND_ENTITY,
     DOMAIN,
     _LOGGER,
@@ -38,7 +43,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         """Export all config entries to a JSON file."""
         filename = call.data.get("filename", "adaptive_cover_settings.json")
         filepath = hass.config.path(filename)
-        
+
         export_data = {}
         for entry in hass.config_entries.async_entries(DOMAIN):
             export_data[entry.entry_id] = {
@@ -46,11 +51,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 "data": dict(entry.data),
                 "options": dict(entry.options),
             }
-            
+
         def write_file():
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(export_data, f, indent=4)
-                
+
         await hass.async_add_executor_job(write_file)
         _LOGGER.info("Exported Adaptive Cover configuration to %s", filepath)
 
@@ -58,38 +63,38 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         """Import config entries from a JSON file."""
         filename = call.data.get("filename", "adaptive_cover_settings.json")
         filepath = hass.config.path(filename)
-        
+
         def read_file():
             if not os.path.exists(filepath):
                 return None
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 return json.load(f)
-                
+
         import_data = await hass.async_add_executor_job(read_file)
-        
+
         if import_data is None:
             _LOGGER.error("Import file not found: %s", filepath)
             return
-            
+
         for entry in hass.config_entries.async_entries(DOMAIN):
             # Znajdź dane w pliku importu pasujące po nazwie (title) zamiast po entry_id
             matched_data = None
-            for stored_id, stored_data in import_data.items():
+            for _stored_id, stored_data in import_data.items():
                 if stored_data.get("title") == entry.title:
                     matched_data = stored_data
                     break
-                    
+
             if matched_data:
                 hass.config_entries.async_update_entry(
-                    entry, 
+                    entry,
                     data=matched_data.get("data", entry.data),
                     options=matched_data.get("options", entry.options)
                 )
         _LOGGER.info("Imported Adaptive Cover configuration from %s", filepath)
 
     hass.services.async_register(
-        DOMAIN, 
-        "export_config", 
+        DOMAIN,
+        "export_config",
         export_config,
         schema=vol.Schema({
             vol.Optional("filename", default="adaptive_cover_settings.json"): cv.string,
@@ -97,8 +102,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     )
 
     hass.services.async_register(
-        DOMAIN, 
-        "import_config", 
+        DOMAIN,
+        "import_config",
         import_config,
         schema=vol.Schema({
             vol.Optional("filename", default="adaptive_cover_settings.json"): cv.string,
@@ -121,23 +126,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
 
-    coordinator = AdaptiveDataUpdateCoordinator(hass)
+    coordinator = AdaptiveDataUpdateCoordinator(hass, entry)
     _temp_entity = entry.options.get(CONF_TEMP_ENTITY)
     _presence_entity = entry.options.get(CONF_PRESENCE_ENTITY)
     _weather_entity = entry.options.get(CONF_WEATHER_ENTITY)
     _cover_entities = entry.options.get(CONF_ENTITIES, [])
     _end_time_entity = entry.options.get(CONF_END_ENTITY)
     _window_entity = entry.options.get(CONF_WINDOW_ENTITY)
-    
-    # --- NOWE ENCJE ---
     _rain_entity = entry.options.get(CONF_RAIN_ENTITY)
     _wind_entity = entry.options.get(CONF_WIND_ENTITY)
-    # ------------------
-    
+    _outside_temp_entity = entry.options.get(CONF_OUTSIDETEMP_ENTITY)
+    _lux_entity = entry.options.get(CONF_LUX_ENTITY)
+    _irradiance_entity = entry.options.get(CONF_IRRADIANCE_ENTITY)
+    _workday_entity = entry.options.get(CONF_WORKDAY_ENTITY)
+    _start_time_entity = entry.options.get(CONF_START_ENTITY)
+
     _entities = ["sun.sun"]
-    
-    # --- DODANE NOWE ENCJE NA KONIEC TEJ LISTY ---
-    for entity in [_temp_entity, _presence_entity, _weather_entity, _end_time_entity, _window_entity, _rain_entity, _wind_entity]:
+
+    for entity in [
+        _temp_entity,
+        _presence_entity,
+        _weather_entity,
+        _end_time_entity,
+        _window_entity,
+        _rain_entity,
+        _wind_entity,
+        _outside_temp_entity,
+        _lux_entity,
+        _irradiance_entity,
+        _workday_entity,
+        _start_time_entity,
+    ]:
         if entity is not None:
             _entities.append(entity)
 

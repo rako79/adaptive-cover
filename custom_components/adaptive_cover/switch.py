@@ -92,6 +92,14 @@ async def async_setup_entry(
         "strict_sun_block_toggle",
         coordinator,
     )
+    dry_run_switch = AdaptiveCoverSwitch(
+        config_entry,
+        config_entry.entry_id,
+        "Dry Run",
+        False,
+        "dry_run_toggle",
+        coordinator,
+    )
 
     climate_mode = config_entry.options.get(CONF_CLIMATE_MODE)
     weather_entity = config_entry.options.get(CONF_WEATHER_ENTITY)
@@ -101,7 +109,7 @@ async def async_setup_entry(
     switches = []
 
     if len(config_entry.options.get(CONF_ENTITIES)) >= 1:
-        switches = [control_switch, manual_switch]
+        switches = [control_switch, manual_switch, dry_run_switch]
 
     if climate_mode:
         switches.append(climate_switch)

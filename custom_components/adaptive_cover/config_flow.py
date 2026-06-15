@@ -42,13 +42,20 @@ from .const import (
     CONF_INVERSE_STATE,
     CONF_IRRADIANCE_ENTITY,
     CONF_IRRADIANCE_THRESHOLD,
+    CONF_IRRADIANCE_THRESHOLD_OFF,
+    CONF_IRRADIANCE_THRESHOLD_ON,
     CONF_LENGTH_AWNING,
     CONF_LUX_ENTITY,
     CONF_LUX_THRESHOLD,
+    CONF_LUX_THRESHOLD_OFF,
+    CONF_LUX_THRESHOLD_ON,
     CONF_MANUAL_IGNORE_INTERMEDIATE,
     CONF_MANUAL_OVERRIDE_DURATION,
     CONF_MANUAL_OVERRIDE_RESET,
     CONF_MANUAL_THRESHOLD,
+    CONF_GLOBAL_COOLDOWN,
+    CONF_MAX_MOVES_PER_DAY,
+    CONF_MAX_MOVES_PER_HOUR,
     CONF_MAX_ELEVATION,
     CONF_MAX_POSITION,
     CONF_MIN_ELEVATION,
@@ -73,7 +80,9 @@ from .const import (
     CONF_WEATHER_STATE,
     CONF_WINDOW_ENTITY,
     CONF_RAIN_ENTITY,
+    CONF_RAIN_POSITION,
     CONF_WIND_ENTITY,
+    CONF_WIND_POSITION,
     CONF_OUTSIDE_THRESHOLD,
     CONF_DAWN_MONTH_START,
     CONF_DAWN_MONTH_END,
@@ -91,6 +100,10 @@ from .const import (
     CONF_START_TIME_WEEKEND,
     CONF_CLOSE_SUNSET_OFFSET,
     CONF_RAIN_NIGHT_ONLY,
+    CONF_WINDOW_OPEN_ACTION,
+    CONF_WINDOW_OPEN_POSITION,
+    WINDOW_ACTION_PAUSE,
+    WINDOW_OPEN_ACTIONS,
 )
 
 # DEFAULT_NAME = "Adaptive Cover"
@@ -256,6 +269,16 @@ CLIMATE_OPTIONS = vol.Schema(
             selector.EntityFilterSelectorConfig(domain="sensor")
         ),
         vol.Optional(CONF_RAIN_NIGHT_ONLY, default=False): bool,
+        vol.Optional(CONF_RAIN_POSITION, default=0): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=100, step=1, mode="slider", unit_of_measurement="%"
+            )
+        ),
+        vol.Optional(CONF_WIND_POSITION, default=0): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=100, step=1, mode="slider", unit_of_measurement="%"
+            )
+        ),
         vol.Required(CONF_TEMP_ENTITY): selector.EntitySelector(
             selector.EntityFilterSelectorConfig(domain=["climate", "sensor"])
         ),
@@ -292,6 +315,12 @@ CLIMATE_OPTIONS = vol.Schema(
         vol.Optional(CONF_LUX_THRESHOLD, default=1000): selector.NumberSelector(
             selector.NumberSelectorConfig(mode="box", unit_of_measurement="lux")
         ),
+        vol.Optional(CONF_LUX_THRESHOLD_ON, default=1200): selector.NumberSelector(
+            selector.NumberSelectorConfig(mode="box", unit_of_measurement="lux")
+        ),
+        vol.Optional(CONF_LUX_THRESHOLD_OFF, default=800): selector.NumberSelector(
+            selector.NumberSelectorConfig(mode="box", unit_of_measurement="lux")
+        ),
         vol.Optional(
             CONF_IRRADIANCE_ENTITY, default=vol.UNDEFINED
         ): selector.EntitySelector(
@@ -301,6 +330,12 @@ CLIMATE_OPTIONS = vol.Schema(
         ),
         vol.Optional(CONF_IRRADIANCE_THRESHOLD, default=300): selector.NumberSelector(
             selector.NumberSelectorConfig(mode="box", unit_of_measurement="W/m²")
+        ),
+        vol.Optional(CONF_IRRADIANCE_THRESHOLD_ON, default=350): selector.NumberSelector(
+            selector.NumberSelectorConfig(mode="box", unit_of_measurement="W/m2")
+        ),
+        vol.Optional(CONF_IRRADIANCE_THRESHOLD_OFF, default=250): selector.NumberSelector(
+            selector.NumberSelectorConfig(mode="box", unit_of_measurement="W/m2")
         ),
         vol.Optional(CONF_TRANSPARENT_BLIND, default=False): selector.BooleanSelector(),
         vol.Optional(
@@ -361,6 +396,17 @@ AUTOMATION_CONFIG = vol.Schema(
                 min=2, mode="box", unit_of_measurement="minutes"
             )
         ),
+        vol.Optional(CONF_GLOBAL_COOLDOWN, default=5): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=120, step=1, mode="box", unit_of_measurement="minutes"
+            )
+        ),
+        vol.Optional(CONF_MAX_MOVES_PER_HOUR, default=8): selector.NumberSelector(
+            selector.NumberSelectorConfig(min=0, max=60, step=1, mode="box")
+        ),
+        vol.Optional(CONF_MAX_MOVES_PER_DAY, default=40): selector.NumberSelector(
+            selector.NumberSelectorConfig(min=0, max=300, step=1, mode="box")
+        ),
         vol.Optional(CONF_START_TIME, default="00:00:00"): selector.TimeSelector(),
         vol.Optional(CONF_START_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain=["sensor", "input_datetime"])
@@ -373,13 +419,24 @@ AUTOMATION_CONFIG = vol.Schema(
             vol.Coerce(int), vol.Range(min=0, max=99)
         ),
         vol.Optional(CONF_MANUAL_IGNORE_INTERMEDIATE, default=False): bool,
-        
+
         vol.Optional(CONF_WORKDAY_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="binary_sensor")
         ),
         # --- NASZ NOWY WYBÓR ENCJ OKNA/DRZWI BALKONOWYCH ---
         vol.Optional(CONF_WINDOW_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain=["binary_sensor", "input_boolean"])
+        ),
+        vol.Optional(CONF_WINDOW_OPEN_ACTION, default=WINDOW_ACTION_PAUSE): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=WINDOW_OPEN_ACTIONS,
+                translation_key="window_open_action",
+            )
+        ),
+        vol.Optional(CONF_WINDOW_OPEN_POSITION, default=100): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=100, step=1, mode="slider", unit_of_measurement="%"
+            )
         ),
         # ---------------------------------------------------
         vol.Optional(CONF_END_TIME, default="00:00:00"): selector.TimeSelector(),
@@ -648,6 +705,9 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_WEATHER_STATE: self.config.get(CONF_WEATHER_STATE),
                 CONF_DELTA_POSITION: self.config.get(CONF_DELTA_POSITION),
                 CONF_DELTA_TIME: self.config.get(CONF_DELTA_TIME),
+                CONF_GLOBAL_COOLDOWN: self.config.get(CONF_GLOBAL_COOLDOWN, 5),
+                CONF_MAX_MOVES_PER_HOUR: self.config.get(CONF_MAX_MOVES_PER_HOUR, 8),
+                CONF_MAX_MOVES_PER_DAY: self.config.get(CONF_MAX_MOVES_PER_DAY, 40),
                 CONF_START_TIME: self.config.get(CONF_START_TIME),
                 CONF_START_ENTITY: self.config.get(CONF_START_ENTITY),
                 CONF_MANUAL_OVERRIDE_DURATION: self.config.get(
@@ -679,6 +739,12 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_OUTSIDE_THRESHOLD: self.config.get(CONF_OUTSIDE_THRESHOLD),
                 CONF_RAIN_ENTITY: self.config.get(CONF_RAIN_ENTITY),
                 CONF_WIND_ENTITY: self.config.get(CONF_WIND_ENTITY),
+                CONF_RAIN_POSITION: self.config.get(CONF_RAIN_POSITION, 0),
+                CONF_WIND_POSITION: self.config.get(CONF_WIND_POSITION, 0),
+                CONF_LUX_THRESHOLD_ON: self.config.get(CONF_LUX_THRESHOLD_ON, 1200),
+                CONF_LUX_THRESHOLD_OFF: self.config.get(CONF_LUX_THRESHOLD_OFF, 800),
+                CONF_IRRADIANCE_THRESHOLD_ON: self.config.get(CONF_IRRADIANCE_THRESHOLD_ON, 350),
+                CONF_IRRADIANCE_THRESHOLD_OFF: self.config.get(CONF_IRRADIANCE_THRESHOLD_OFF, 250),
                 # --- NASZE NOWE PARAMETRY ---
                 CONF_DAWN_MONTH_START: self.config.get(CONF_DAWN_MONTH_START, 5),
                 CONF_DAWN_MONTH_END: self.config.get(CONF_DAWN_MONTH_END, 10),
@@ -686,6 +752,10 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_COLD_THRESHOLD: self.config.get(CONF_COLD_THRESHOLD, 16),
                 CONF_WIND_THRESHOLD: self.config.get(CONF_WIND_THRESHOLD, 40),
                 CONF_PURGE_POS: self.config.get(CONF_PURGE_POS, 15),
+                CONF_RAIN_NIGHT_ONLY: self.config.get(CONF_RAIN_NIGHT_ONLY, False),
+                CONF_WINDOW_ENTITY: self.config.get(CONF_WINDOW_ENTITY),
+                CONF_WINDOW_OPEN_ACTION: self.config.get(CONF_WINDOW_OPEN_ACTION, WINDOW_ACTION_PAUSE),
+                CONF_WINDOW_OPEN_POSITION: self.config.get(CONF_WINDOW_OPEN_POSITION, 100),
                 CONF_WORKDAY_ENTITY: self.config.get(CONF_WORKDAY_ENTITY),
                 CONF_START_TIME_WORKDAY: self.config.get(CONF_START_TIME_WORKDAY, "07:00:00"),
                 CONF_START_TIME_WEEKEND: self.config.get(CONF_START_TIME_WEEKEND, "09:00:00"),
@@ -923,7 +993,6 @@ class OptionsFlowHandler(OptionsFlow):
                 CONF_IRRADIANCE_ENTITY,
                 CONF_RAIN_ENTITY,
                 CONF_WIND_ENTITY,
-                CONF_RAIN_NIGHT_ONLY,
             ]
             self.optional_entities(entities, user_input)
             self.options.update(user_input)
