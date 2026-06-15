@@ -543,24 +543,71 @@
       }
     },
     "sensor": {
+      "cover_position": { "name": "Cover Position" },
+      "start_sun": { "name": "Start Sun" },
+      "end_sun": { "name": "End Sun" },
+      "control": { "name": "Control Method" },
       "algorithm_status": {
         "schedule": {
           "name": "Today's Schedule"
         },
         "name": "Algorithm Status",
         "state": {
-          "auto": "Automatic Mode (Sun / Climate)",
+          "auto": "Auto (Sun/Climate)",
           "dawn_protection": "Dawn Protection (Closed)",
+          "strict_sun_block": "Strict Summer Sun Block (Closed)",
           "rain_detected": "Rain Detected (Closed)",
           "wind_detected": "Strong Wind (Closed)",
           "cold_protection": "Too cold to purge (Closed)",
           "night_purge": "Night Purge (Tilted)",
-          "max_limit": "Max Limit Forced",
-          "min_limit": "Min Limit Forced",
+          "max_limit": "Forced limit: Max Open",
+          "min_limit": "Forced limit: Min Open",
           "night_mode": "Night Mode (Closed after sunset)",
-          "sun_shadow": "Open: Sun outside window (Shadow)",
+          "sun_shadow": "Opened: Sun outside window (Shadow)",
           "calculating": "Calculating...",
           "window_open": "Window/Door Open"
+        }
+      },
+      "state_reason": {
+        "name": "State Reason"
+      },
+      "schedule": {
+        "name": "Schedule"
+      }
+    },
+    "switch": {
+      "manual_toggle": { "name": "Manual Override" },
+      "control_toggle": { "name": "Toggle Control" },
+      "switch_mode": { "name": "Climate Mode" },
+      "temp_toggle": { "name": "Outside Temperature" },
+      "lux_toggle": { "name": "Lux" },
+      "irradiance_toggle": { "name": "Irradiance" },
+      "strict_sun_block_toggle": {
+        "name": "Strict Sun Block"
+      }
+    },
+    "button": {
+      "reset_manual": { "name": "Reset Manual Override" }
+    }
+  },
+  "services": {
+    "export_config": {
+      "name": "Export configuration",
+      "description": "Saves Adaptive Cover settings to a JSON file in the /config directory, allowing for analysis and easy backups.",
+      "fields": {
+        "filename": {
+          "name": "Filename",
+          "description": "Name of the file to save (e.g. adaptive_cover_settings.json). The file will be saved in the main Home Assistant config directory."
+        }
+      }
+    },
+    "import_config": {
+      "name": "Import configuration",
+      "description": "Loads Adaptive Cover settings from a JSON file in the /config directory and overwrites current config without a restart.",
+      "fields": {
+        "filename": {
+          "name": "Filename",
+          "description": "Name of the config file to load (e.g. adaptive_cover_settings.json). The file must exist in the main HA config directory."
         }
       }
     }

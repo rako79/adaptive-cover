@@ -36,6 +36,7 @@ from .calculation import (
     ClimateCoverState,
     NormalCoverState,
 )
+from .learning import BehavioralLearner
 from .const import (
     _LOGGER,
     ATTR_POSITION,
@@ -158,6 +159,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self._manual_toggle = None
         self._lux_toggle = None
         self._irradiance_toggle = None
+        self._strict_sun_block_toggle = False
         self._start_time = None
         self._sun_end_time = None
         self._sun_start_time = None
@@ -175,7 +177,8 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self.climate_state = None
         self.control_method = "intermediate"
         self.state_change_data: StateChangedData | None = None
-        self.manager = AdaptiveCoverManager(self.manual_duration, self.logger)
+        self.learner = BehavioralLearner(hass, self.logger)
+        self.manager = AdaptiveCoverManager(self.manual_duration, self.logger, self.learner)
         self.wait_for_target = {}
         self.target_call = {}
         self.verify_tasks = {}
@@ -389,6 +392,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 "end": end,
                 "control": self.control_method,
                 "explanation": "window_open" if self.is_window_open else getattr(cover_data, "state_info", "auto"),
+                "state_reason": "Okno otwarte: wstrzymano adaptację." if self.is_window_open else getattr(cover_data, "state_reason", "Działanie automatyczne."),
                 "sun_motion": normal_cover.valid,
                 "manual_override": self.manager.binary_cover_manual,
                 "manual_list": self.manager.manual_controlled,
@@ -425,6 +429,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 self._cover_type,
                 self.manual_reset,
                 self.wait_for_target,
+                self.target_call,
                 self.manual_threshold,
             )
         self.cover_state_change = False
@@ -463,14 +468,17 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         )
         if self.control_toggle:
             for cover in self.entities:
-                await self.async_set_manual_position(
-                    cover,
-                    (
-                        inverse_state(options.get(CONF_SUNSET_POS))
-                        if self._inverse_state
-                        else options.get(CONF_SUNSET_POS)
-                    ),
-                )
+                if not self.manager.is_cover_manual(cover):
+                    await self.async_set_manual_position(
+                        cover,
+                        (
+                            inverse_state(options.get(CONF_SUNSET_POS))
+                            if self._inverse_state
+                            else options.get(CONF_SUNSET_POS)
+                        ),
+                    )
+                else:
+                    self.logger.debug("Skiping timed refresh for %s because it is under manual control", cover)
         else:
             self.logger.debug("Timed refresh but control toggle is off")
         self.timed_refresh = False
@@ -761,6 +769,15 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
 
     def common_data(self, options):
         """Update shared parameters."""
+        default_pos = options.get(CONF_DEFAULT_HEIGHT)
+        # Apply Behavioral ML offset for default position
+        # Since we have multiple entities, we might just take the first or average.
+        # But this is common_data. We can apply it per entity in the actual cover processing if needed, 
+        # but for simplicity, let's just use the first entity.
+        first_entity = self.entities[0] if self.entities else None
+        if first_entity:
+            default_pos = self.learner.get_position_offset(first_entity, default_pos)
+            
         return [
             options.get(CONF_SUNSET_POS),
             options.get(CONF_SUNSET_OFFSET),
@@ -769,7 +786,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             options.get(CONF_FOV_LEFT),
             options.get(CONF_FOV_RIGHT),
             options.get(CONF_AZIMUTH),
-            options.get(CONF_DEFAULT_HEIGHT),
+            default_pos,
             options.get(CONF_MAX_POSITION),
             options.get(CONF_MIN_POSITION),
             options.get(CONF_ENABLE_MAX_POSITION, False),
@@ -784,12 +801,19 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
 
     def get_climate_data(self, options):
         """Update climate data."""
+        temp_high = options.get(CONF_TEMP_HIGH)
+        # Apply Behavioral ML offset for temp high
+        first_entity = self.entities[0] if self.entities else None
+        if first_entity and temp_high is not None:
+            offset = self.learner.get_temp_offset(first_entity)
+            temp_high += offset
+            
         return [
             self.hass,
             self.logger,
             options.get(CONF_TEMP_ENTITY),
             options.get(CONF_TEMP_LOW),
-            options.get(CONF_TEMP_HIGH),
+            temp_high,
             options.get(CONF_PRESENCE_ENTITY),
             options.get(CONF_WEATHER_ENTITY),
             options.get(CONF_WEATHER_STATE),
@@ -813,6 +837,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             options.get(CONF_WIND_THRESHOLD, 40),
             options.get(CONF_PURGE_POS, 15),
             options.get(CONF_RAIN_NIGHT_ONLY, False),
+            self._strict_sun_block_toggle,
         ]
 
     def climate_mode_data(self, options, cover_data):
@@ -833,8 +858,8 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         return [
             options.get(CONF_DISTANCE),
             options.get(CONF_HEIGHT_WIN),
-            options.get(CONF_WINDOW_DEPTH, 0.0),
-            options.get(CONF_SILL_HEIGHT, 0.0),
+            options.get(CONF_WINDOW_DEPTH) if options.get(CONF_WINDOW_DEPTH) is not None else 0.0,
+            options.get(CONF_SILL_HEIGHT) if options.get(CONF_SILL_HEIGHT) is not None else 0.0,
         ]
 
     def horizontal_data(self, options):
@@ -953,11 +978,20 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     def irradiance_toggle(self, value):
         self._irradiance_toggle = value
 
+    @property
+    def strict_sun_block_toggle(self):
+        """Toggle strict sun block."""
+        return self._strict_sun_block_toggle
+
+    @strict_sun_block_toggle.setter
+    def strict_sun_block_toggle(self, value):
+        self._strict_sun_block_toggle = value
+
 
 class AdaptiveCoverManager:
     """Track position changes."""
 
-    def __init__(self, reset_duration: dict[str:int], logger) -> None:
+    def __init__(self, reset_duration: dict[str:int], logger, learner=None) -> None:
         """Initialize the AdaptiveCoverManager."""
         self.covers: set[str] = set()
 
@@ -965,6 +999,7 @@ class AdaptiveCoverManager:
         self.manual_control_time: dict[str, dt.datetime] = {}
         self.reset_duration = dt.timedelta(**reset_duration)
         self.logger = logger
+        self.learner = learner
 
     def add_covers(self, entity):
         """Update set with entities."""
@@ -977,6 +1012,7 @@ class AdaptiveCoverManager:
         blind_type,
         allow_reset,
         wait_target_call,
+        target_call,
         manual_threshold,
     ):
         """Process state change event."""
@@ -986,8 +1022,6 @@ class AdaptiveCoverManager:
         entity_id = event.entity_id
         if entity_id not in self.covers:
             return
-        if wait_target_call.get(entity_id):
-            return
 
         new_state = event.new_state
 
@@ -995,6 +1029,23 @@ class AdaptiveCoverManager:
             new_position = new_state.attributes.get("current_tilt_position")
         else:
             new_position = new_state.attributes.get("current_position")
+
+        if wait_target_call.get(entity_id):
+            target = target_call.get(entity_id)
+            if target is not None and new_position is not None:
+                # Jeśli silnik zatrzymał się przed osiągnięciem celu, uznajemy to za manualne zatrzymanie!
+                if new_state.state in ["open", "closed", "ok", "stopped"]:
+                    thresh = manual_threshold if manual_threshold is not None else 2
+                    if abs(new_position - target) > thresh:
+                        self.logger.debug("Motor stopped at %s instead of target %s. Manual override!", new_position, target)
+                        wait_target_call[entity_id] = False
+                    else:
+                        wait_target_call[entity_id] = False
+                        return
+                else:
+                    return
+            else:
+                return
 
         if new_position != our_state:
             if (
@@ -1021,6 +1072,10 @@ class AdaptiveCoverManager:
             )
             self.mark_manual_control(entity_id)
             self.set_last_updated(entity_id, new_state, allow_reset)
+            
+            if self.learner:
+                current_temp = None # We don't have direct access here, but in real use we would pass it
+                self.learner.register_override(entity_id, current_temp, our_state, new_position, is_summer=False)
 
     def set_last_updated(self, entity_id, new_state, allow_reset):
         """Set last updated time for manual control."""

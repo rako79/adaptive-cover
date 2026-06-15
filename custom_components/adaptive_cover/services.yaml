@@ -1,0 +1,23 @@
+export_config:
+  name: Eksportuj konfigurację
+  description: Zapisuje ustawienia Adaptive Cover do pliku JSON w katalogu /config, co pozwala na ich analizę i łatwe kopie zapasowe.
+  fields:
+    filename:
+      name: Nazwa pliku
+      description: Nazwa pliku do zapisu (np. adaptive_cover_settings.json). Plik zostanie zapisany w głównym katalogu konfiguracyjnym Home Assistant (/config).
+      required: false
+      example: adaptive_cover_settings.json
+      selector:
+        text:
+
+import_config:
+  name: Importuj konfigurację
+  description: Wczytuje ustawienia Adaptive Cover z pliku JSON w katalogu /config i nadpisuje aktualną konfigurację bez potrzeby ponownego uruchamiania.
+  fields:
+    filename:
+      name: Nazwa pliku
+      description: Nazwa pliku z konfiguracją do wczytania (np. adaptive_cover_settings.json). Plik musi znajdować się w głównym katalogu konfiguracyjnym Home Assistant (/config).
+      required: false
+      example: adaptive_cover_settings.json
+      selector:
+        text:

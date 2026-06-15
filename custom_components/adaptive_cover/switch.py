@@ -84,6 +84,14 @@ async def async_setup_entry(
         "irradiance_toggle",
         coordinator,
     )
+    strict_sun_block_switch = AdaptiveCoverSwitch(
+        config_entry,
+        config_entry.entry_id,
+        "Strict Sun Block",
+        False,
+        "strict_sun_block_toggle",
+        coordinator,
+    )
 
     climate_mode = config_entry.options.get(CONF_CLIMATE_MODE)
     weather_entity = config_entry.options.get(CONF_WEATHER_ENTITY)
@@ -103,6 +111,7 @@ async def async_setup_entry(
             switches.append(lux_switch)
         if irradiance_entity:
             switches.append(irradiance_switch)
+        switches.append(strict_sun_block_switch)
 
     async_add_entities(switches)
 
@@ -119,7 +128,7 @@ class AdaptiveCoverSwitch(
         self,
         config_entry,
         unique_id: str,
-        switch_name: str,
+        original_name: str,
         initial_state: bool,
         key: str,
         coordinator: AdaptiveDataUpdateCoordinator,
@@ -137,22 +146,22 @@ class AdaptiveCoverSwitch(
         self._key = key
         self._attr_translation_key = key
         self._device_name = self.type[config_entry.data[CONF_SENSOR_TYPE]]
-        self._switch_name = switch_name
         self._attr_device_class = device_class
         self._initial_state = initial_state
-        self._attr_unique_id = f"{unique_id}_{switch_name}"
+        self._attr_unique_id = f"{unique_id}_{original_name}"
         self._device_id = unique_id
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=self._device_name,
+            name=self._name,
+            model=self._device_name,
         )
 
         self.coordinator.logger.debug("Setup switch")
 
     @property
-    def name(self):
-        """Name of the entity."""
-        return f"{self._switch_name} {self._name}"
+    def is_on(self) -> bool:
+        """Return True if entity is on."""
+        return getattr(self.coordinator, self._key, self._attr_is_on)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
@@ -184,6 +193,7 @@ class AdaptiveCoverSwitch(
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
+        await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         self.coordinator.logger.debug("%s: last state is %s", self._name, last_state)
         if (last_state is None and self._initial_state) or (

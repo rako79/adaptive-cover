@@ -6,7 +6,8 @@
         "data": {
           "name": "Name",
           "blueprint": "Add blueprint to HomeAssistant",
-          "mode": "Type of blind"
+          "mode": "Type of blind",
+          "strict_sun_block": "Strict sun block"
         }
       },
       "automation": {

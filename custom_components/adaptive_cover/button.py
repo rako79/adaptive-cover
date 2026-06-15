@@ -26,7 +26,7 @@ async def async_setup_entry(
     ]
 
     reset_manual = AdaptiveCoverButton(
-        config_entry, config_entry.entry_id, "Reset Manual Override", coordinator
+        config_entry, config_entry.entry_id, coordinator
     )
 
     buttons = []
@@ -51,7 +51,6 @@ class AdaptiveCoverButton(
         self,
         config_entry,
         unique_id: str,
-        button_name: str,
         coordinator: AdaptiveDataUpdateCoordinator,
     ) -> None:
         """Initialize the button."""
@@ -63,19 +62,15 @@ class AdaptiveCoverButton(
         }
         self._name = config_entry.data["name"]
         self._device_name = self.type[config_entry.data[CONF_SENSOR_TYPE]]
-        self._attr_unique_id = f"{unique_id}_{button_name}"
+        self._attr_unique_id = f"{unique_id}_Reset Manual Override"
+        self._attr_translation_key = "reset_manual"
         self._device_id = unique_id
-        self._button_name = button_name
         self._entities = config_entry.options.get(CONF_ENTITIES, [])
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=self._device_name,
+            name=self._name,
+            model=self._device_name,
         )
-
-    @property
-    def name(self):
-        """Name of the entity."""
-        return f"{self._button_name} {self._name}"
 
     async def async_press(self) -> None:
         """Handle the button press."""

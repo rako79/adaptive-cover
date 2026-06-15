@@ -543,6 +543,10 @@
       }
     },
     "sensor": {
+      "cover_position": { "name": "Pozycja" },
+      "start_sun": { "name": "Początek nasłonecznienia" },
+      "end_sun": { "name": "Koniec nasłonecznienia" },
+      "control": { "name": "Metoda sterowania" },
       "algorithm_status": {
         "schedule": {
           "name": "Harmonogram na dzisiaj"
@@ -551,6 +555,7 @@
         "state": {
           "auto": "Tryb automatyczny (Słońce / Klimat)",
           "dawn_protection": "Ochrona przed świtem (Zamknięte)",
+          "strict_sun_block": "Blokada słońca letniego (Zamknięte)",
           "rain_detected": "Wykryto opady (Zamknięte)",
           "wind_detected": "Silny wiatr (Zamknięte)",
           "cold_protection": "Za zimno na wietrzenie (Zamknięte)",
@@ -561,6 +566,48 @@
           "sun_shadow": "Otwarto: Słońce poza oknem (Cień)",
           "calculating": "Trwa obliczanie...",
           "window_open": "Otwarte okno/drzwi"
+        }
+      },
+      "state_reason": {
+        "name": "Powód Decyzji"
+      },
+      "schedule": {
+        "name": "Harmonogram"
+      }
+    },
+    "switch": {
+      "manual_toggle": { "name": "Blokada ręczna" },
+      "control_toggle": { "name": "Automatyka" },
+      "switch_mode": { "name": "Tryb klimatyczny" },
+      "temp_toggle": { "name": "Ochrona termiczna" },
+      "lux_toggle": { "name": "Zależność od Lux" },
+      "irradiance_toggle": { "name": "Zależność od nasłonecznienia W/m2" },
+      "strict_sun_block_toggle": {
+        "name": "Letnia Blokada Słońca"
+      }
+    },
+    "button": {
+      "reset_manual": { "name": "Reset blokady ręcznej" }
+    }
+  },
+  "services": {
+    "export_config": {
+      "name": "Eksportuj konfigurację",
+      "description": "Zapisuje ustawienia Adaptive Cover do pliku JSON w katalogu /config, co pozwala na ich analizę i łatwe kopie zapasowe.",
+      "fields": {
+        "filename": {
+          "name": "Nazwa pliku",
+          "description": "Nazwa pliku do zapisu (np. adaptive_cover_settings.json). Plik zostanie zapisany w głównym katalogu konfiguracyjnym Home Assistant (/config)."
+        }
+      }
+    },
+    "import_config": {
+      "name": "Importuj konfigurację",
+      "description": "Wczytuje ustawienia Adaptive Cover z pliku JSON w katalogu /config i nadpisuje aktualną konfigurację bez potrzeby ponownego uruchamiania.",
+      "fields": {
+        "filename": {
+          "name": "Nazwa pliku",
+          "description": "Nazwa pliku z konfiguracją do wczytania (np. adaptive_cover_settings.json). Plik musi znajdować się w głównym katalogu konfiguracyjnym HA."
         }
       }
     }

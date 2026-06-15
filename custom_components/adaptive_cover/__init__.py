@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers.event import (
     async_track_state_change_event,
 )
+import homeassistant.helpers.config_validation as cv
+import json
+import os
+import voluptuous as vol
 
 from .const import (
     CONF_END_ENTITY,
@@ -26,6 +30,82 @@ from .coordinator import AdaptiveDataUpdateCoordinator
 PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SELECT, Platform.TIME, Platform.NUMBER]
 CONF_SUN = ["sun.sun"]
 
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Adaptive Cover component."""
+
+    async def export_config(call: ServiceCall) -> None:
+        """Export all config entries to a JSON file."""
+        filename = call.data.get("filename", "adaptive_cover_settings.json")
+        filepath = hass.config.path(filename)
+        
+        export_data = {}
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            export_data[entry.entry_id] = {
+                "title": entry.title,
+                "data": dict(entry.data),
+                "options": dict(entry.options),
+            }
+            
+        def write_file():
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(export_data, f, indent=4)
+                
+        await hass.async_add_executor_job(write_file)
+        _LOGGER.info("Exported Adaptive Cover configuration to %s", filepath)
+
+    async def import_config(call: ServiceCall) -> None:
+        """Import config entries from a JSON file."""
+        filename = call.data.get("filename", "adaptive_cover_settings.json")
+        filepath = hass.config.path(filename)
+        
+        def read_file():
+            if not os.path.exists(filepath):
+                return None
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+                
+        import_data = await hass.async_add_executor_job(read_file)
+        
+        if import_data is None:
+            _LOGGER.error("Import file not found: %s", filepath)
+            return
+            
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            # Znajdź dane w pliku importu pasujące po nazwie (title) zamiast po entry_id
+            matched_data = None
+            for stored_id, stored_data in import_data.items():
+                if stored_data.get("title") == entry.title:
+                    matched_data = stored_data
+                    break
+                    
+            if matched_data:
+                hass.config_entries.async_update_entry(
+                    entry, 
+                    data=matched_data.get("data", entry.data),
+                    options=matched_data.get("options", entry.options)
+                )
+        _LOGGER.info("Imported Adaptive Cover configuration from %s", filepath)
+
+    hass.services.async_register(
+        DOMAIN, 
+        "export_config", 
+        export_config,
+        schema=vol.Schema({
+            vol.Optional("filename", default="adaptive_cover_settings.json"): cv.string,
+        })
+    )
+
+    hass.services.async_register(
+        DOMAIN, 
+        "import_config", 
+        import_config,
+        schema=vol.Schema({
+            vol.Optional("filename", default="adaptive_cover_settings.json"): cv.string,
+        })
+    )
+
+    return True
 
 async def async_initialize_integration(
     hass: HomeAssistant,

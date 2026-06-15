@@ -51,7 +51,6 @@ async def async_setup_entry(
         hass,
         config_entry,
         name,
-        "Start Sun",
         "start",
         "mdi:sun-clock-outline",
         coordinator,
@@ -61,7 +60,6 @@ async def async_setup_entry(
         hass,
         config_entry,
         name,
-        "End Sun",
         "end",
         "mdi:sun-clock",
         coordinator,
@@ -72,10 +70,13 @@ async def async_setup_entry(
     explain = AdaptiveCoverExplainSensorEntity(
         config_entry.entry_id, hass, config_entry, name, coordinator
     )
+    reason = AdaptiveCoverStateReasonSensorEntity(
+        config_entry.entry_id, hass, config_entry, name, coordinator
+    )
     schedule = AdaptiveCoverScheduleSensorEntity(
         config_entry.entry_id, hass, config_entry, name, coordinator
     )
-    async_add_entities([sensor, start, end, control, explain, schedule])
+    async_add_entities([sensor, start, end, control, explain, reason, schedule])
 
 class AdaptiveCoverSensorEntity(
     CoordinatorEntity[AdaptiveDataUpdateCoordinator], SensorEntity
@@ -105,8 +106,8 @@ class AdaptiveCoverSensorEntity(
         }
         self.coordinator = coordinator
         self.data = self.coordinator.data
-        self._sensor_name = "Cover Position"
-        self._attr_unique_id = f"{unique_id}_{self._sensor_name}"
+        self._attr_translation_key = "cover_position"
+        self._attr_unique_id = f"{unique_id}_Cover Position"
         self.hass = hass
         self.config_entry = config_entry
         self._name = name
@@ -120,11 +121,6 @@ class AdaptiveCoverSensorEntity(
         self.async_write_ha_state()
 
     @property
-    def name(self):
-        """Name of the entity."""
-        return f"{self._sensor_name} {self._name}"
-
-    @property
     def native_value(self) -> str | None:
         """Handle when entity is added."""
         return self.data.states["state"]
@@ -135,7 +131,8 @@ class AdaptiveCoverSensorEntity(
         return DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, self._device_id)},
-            name=self._device_name,
+            name=self._name,
+            model=self._device_name,
         )
 
     @property
@@ -157,7 +154,6 @@ class AdaptiveCoverTimeSensorEntity(
         hass,
         config_entry,
         name: str,
-        sensor_name: str,
         key: str,
         icon: str,
         coordinator: AdaptiveDataUpdateCoordinator,
@@ -171,15 +167,15 @@ class AdaptiveCoverTimeSensorEntity(
         }
         self._attr_icon = icon
         self.key = key
+        self._attr_translation_key = "start_sun" if key == "start" else "end_sun"
         self.coordinator = coordinator
         self.data = self.coordinator.data
-        self._attr_unique_id = f"{unique_id}_{sensor_name}"
+        self._attr_unique_id = f"{unique_id}_Start Sun" if key == "start" else f"{unique_id}_End Sun"
         self._device_id = unique_id
         self.hass = hass
         self.config_entry = config_entry
         self._name = name
         self._cover_type = self.config_entry.data["sensor_type"]
-        self._sensor_name = sensor_name
         self._device_name = self.type[config_entry.data[CONF_SENSOR_TYPE]]
 
     @callback
@@ -187,11 +183,6 @@ class AdaptiveCoverTimeSensorEntity(
         """Handle updated data from the coordinator."""
         self.data = self.coordinator.data
         self.async_write_ha_state()
-
-    @property
-    def name(self):
-        """Name of the entity."""
-        return f"{self._sensor_name} {self._name}"
 
     @property
     def native_value(self) -> str | None:
@@ -204,7 +195,8 @@ class AdaptiveCoverTimeSensorEntity(
         return DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, self._device_id)},
-            name=self._device_name,
+            name=self._name,
+            model=self._device_name,
         )
 
 class AdaptiveCoverControlSensorEntity(
@@ -233,8 +225,7 @@ class AdaptiveCoverControlSensorEntity(
         }
         self.coordinator = coordinator
         self.data = self.coordinator.data
-        self._sensor_name = "Control Method"
-        self._attr_unique_id = f"{unique_id}_{self._sensor_name}"
+        self._attr_unique_id = f"{unique_id}_Control Method"
         self._device_id = unique_id
         self.id = unique_id
         self.hass = hass
@@ -250,11 +241,6 @@ class AdaptiveCoverControlSensorEntity(
         self.async_write_ha_state()
 
     @property
-    def name(self):
-        """Name of the entity."""
-        return f"{self._sensor_name} {self._name}"
-
-    @property
     def native_value(self) -> str | None:
         """Handle when entity is added."""
         return self.data.states["control"]
@@ -265,7 +251,8 @@ class AdaptiveCoverControlSensorEntity(
         return DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, self._device_id)},
-            name=self._device_name,
+            name=self._name,
+            model=self._device_name,
         )
         
 class AdaptiveCoverExplainSensorEntity(
@@ -326,7 +313,64 @@ class AdaptiveCoverExplainSensorEntity(
         return DeviceInfo(
             entry_type=DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, self._device_id)},
-            name=self._device_name,
+            name=self._name,
+            model=self._device_name,
+        )
+
+class AdaptiveCoverStateReasonSensorEntity(
+    CoordinatorEntity[AdaptiveDataUpdateCoordinator], SensorEntity
+):
+    """Adaptive Cover State Reason Sensor."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_icon = "mdi:text-box-search"
+    _attr_translation_key = "state_reason"
+
+    def __init__(
+        self,
+        unique_id: str,
+        hass,
+        config_entry,
+        name: str,
+        coordinator: AdaptiveDataUpdateCoordinator,
+    ) -> None:
+        """Initialize adaptive_cover Sensor."""
+        super().__init__(coordinator=coordinator)
+        self.type = {
+            "cover_blind": "Vertical",
+            "cover_awning": "Horizontal",
+            "cover_tilt": "Tilt",
+        }
+        self.coordinator = coordinator
+        self.data = self.coordinator.data
+        self._attr_unique_id = f"{unique_id}_state_reason"
+        self._device_id = unique_id
+        self.id = unique_id
+        self.hass = hass
+        self.config_entry = config_entry
+        self._name = name
+        self._device_name = self.type[config_entry.data[CONF_SENSOR_TYPE]]
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self.data = self.coordinator.data
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str | None:
+        """Fetch the reason string."""
+        return self.data.states.get("state_reason", "Działanie automatyczne")
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info."""
+        return DeviceInfo(
+            entry_type=DeviceEntryType.SERVICE,
+            identifiers={(DOMAIN, self._device_id)},
+            name=self._name,
+            model=self._device_name,
         )
 
 class AdaptiveCoverScheduleSensorEntity(
@@ -367,7 +411,8 @@ class AdaptiveCoverScheduleSensorEntity(
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._device_id)},
-            name=self._device_name,
+            name=self._name,
+            model=self._device_name,
         )
 
     @property
