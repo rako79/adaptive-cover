@@ -580,6 +580,24 @@ class ClimateCoverData:
             with contextlib.suppress(ValueError, TypeError):
                 rad_value = float(val) * 0.0079 # przybliżony przelicznik z lux na W/m2
 
+        radiation_threshold = getattr(self, "irradiance_threshold", None)
+        if radiation_threshold is None and getattr(self, "lux_threshold", None) is not None:
+            radiation_threshold = float(self.lux_threshold) * 0.0079
+
+        outside_float = _as_float(outside)
+        if (
+            outside_float is not None
+            and outside_float < current
+            and radiation_threshold is not None
+            and rad_value <= float(radiation_threshold)
+        ):
+            self.logger.debug(
+                "thermal_stress(): outside is cooler and radiation is low (%s <= %s); no cooling closure needed",
+                rad_value,
+                radiation_threshold,
+            )
+            return 0.0
+
         # Obliczanie predykcji
         if outside is not None:
             delta_t = current - float(outside)
@@ -919,6 +937,7 @@ class ClimateCoverState(NormalCoverState):
                  self.cover.state_reason = "Tryb nocny: słońce po zachodzie."
             elif not self.cover.valid:
                  self.cover.state_info = "sun_shadow"
+                 result = self.cover.default
                  self.cover.state_reason = "Słońce poza zasięgiem okna (okno w cieniu)."
 
         # --- Aplikacja nadrzędnych limitów ---

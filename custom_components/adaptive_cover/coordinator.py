@@ -128,7 +128,7 @@ from .const import (
     DOMAIN,
     LOGGER,
 )
-from .helpers import get_datetime_from_str, get_last_updated, get_safe_state
+from .helpers import get_datetime_from_str, get_safe_state
 
 def state_attr(hass, entity_id: str, attr_name: str):
     """Return a Home Assistant state attribute safely."""
@@ -621,21 +621,30 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         if await self.async_handle_window_policy(entity, state):
             return
 
-        if (
-            self.check_adaptive_time
-            and self.check_position_delta(entity, state, options)
-            and self.check_time_delta(entity)
-            and not self.manager.is_cover_manual(entity)
-            and self.manager.can_move(
-                entity,
-                self.global_cooldown,
-                self.max_moves_per_hour,
-                self.max_moves_per_day,
-            )
-        ):
+        block_reason = self.movement_block_reason(entity, state, options)
+        if block_reason is None:
             await self.async_set_position(entity, state)
         elif self.manager.cover_status.get(entity) != "blocked":
-            self.manager.set_status(entity, "skipped", "movement_conditions_not_met")
+            self.manager.set_status(entity, "skipped", block_reason)
+
+    def movement_block_reason(self, entity, state: int, options) -> str | None:
+        """Zwróć konkretny powód zablokowania ruchu rolety."""
+        if not self.check_adaptive_time:
+            return "outside_adaptive_time"
+        if not self.check_position_delta(entity, state, options):
+            return "position_delta_too_small"
+        if not self.check_time_delta(entity):
+            return "time_delta_not_passed"
+        if self.manager.is_cover_manual(entity):
+            return "manual_override_active"
+        if not self.manager.can_move(
+            entity,
+            self.global_cooldown,
+            self.max_moves_per_hour,
+            self.max_moves_per_day,
+        ):
+            return self.manager.last_skip_reason.get(entity, "movement_limit")
+        return None
 
     async def async_set_position(self, entity, state: int):
         """Call service to set cover position."""
@@ -923,13 +932,14 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     def check_time_delta(self, entity):
         """Check if time delta is passed."""
         now = dt.datetime.now(dt.UTC)
-        last_updated = get_last_updated(entity, self.hass)
-        if last_updated is not None:
-            condition = now - last_updated >= dt.timedelta(minutes=self.time_threshold)
+        movement_history = self.manager.movement_history.get(entity, [])
+        if movement_history:
+            last_movement = max(movement_history)
+            condition = now - last_movement >= dt.timedelta(minutes=float(self.time_threshold))
             self.logger.debug(
                 "Entity: %s, time delta: %s, threshold: %s, condition: %s",
                 entity,
-                now - last_updated,
+                now - last_movement,
                 self.time_threshold,
                 condition,
             )
@@ -947,13 +957,6 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     def common_data(self, options):
         """Update shared parameters."""
         default_pos = options.get(CONF_DEFAULT_HEIGHT)
-        # Apply Behavioral ML offset for default position
-        # Since we have multiple entities, we might just take the first or average.
-        # But this is common_data. We can apply it per entity in the actual cover processing if needed,
-        # but for simplicity, let's just use the first entity.
-        first_entity = self.entities[0] if self.entities else None
-        if first_entity:
-            default_pos = self.learner.get_position_offset(first_entity, default_pos)
 
         return [
             options.get(CONF_SUNSET_POS),

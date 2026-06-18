@@ -1,10 +1,10 @@
 export_config:
   name: Eksportuj konfigurację
-  description: Zapisuje ustawienia Adaptive Cover do pliku JSON w katalogu /config, co pozwala na ich analizę i łatwe kopie zapasowe.
+  description: Zapisuje ustawienia Adaptive Cover do pliku JSON w katalogu /config, co pozwala na analizę i łatwe kopie zapasowe.
   fields:
     filename:
       name: Nazwa pliku
-      description: Nazwa pliku do zapisu (np. adaptive_cover_settings.json). Plik zostanie zapisany w głównym katalogu konfiguracyjnym Home Assistant (/config).
+      description: Nazwa pliku do zapisu, np. adaptive_cover_settings.json. Plik zostanie zapisany w głównym katalogu konfiguracyjnym Home Assistant (/config).
       required: false
       example: adaptive_cover_settings.json
       selector:
@@ -16,8 +16,27 @@ import_config:
   fields:
     filename:
       name: Nazwa pliku
-      description: Nazwa pliku z konfiguracją do wczytania (np. adaptive_cover_settings.json). Plik musi znajdować się w głównym katalogu konfiguracyjnym Home Assistant (/config).
+      description: Nazwa pliku z konfiguracją do wczytania, np. adaptive_cover_settings.json. Plik musi znajdować się w głównym katalogu konfiguracyjnym Home Assistant (/config).
       required: false
       example: adaptive_cover_settings.json
       selector:
         text:
+
+export_diagnostics:
+  name: Eksportuj diagnostykę
+  description: Zapisuje pełny obraz działania Adaptive Cover, w tym konfigurację, aktualne decyzje algorytmu, statusy rolet i stany powiązanych encji.
+  fields:
+    filename:
+      name: Nazwa pliku
+      description: Nazwa pliku do zapisu, np. adaptive_cover_diagnostics.json. Plik zostanie zapisany w głównym katalogu konfiguracyjnym Home Assistant (/config).
+      required: false
+      example: adaptive_cover_diagnostics.json
+      selector:
+        text:
+    refresh:
+      name: Odśwież dane przed eksportem
+      description: Wymusza przeliczenie danych koordynatora przed zapisaniem pliku diagnostycznego.
+      required: false
+      default: true
+      selector:
+        boolean:

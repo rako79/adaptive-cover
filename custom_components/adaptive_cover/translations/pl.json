@@ -694,6 +694,20 @@
           "description": "Nazwa pliku z konfiguracją do wczytania (np. adaptive_cover_settings.json). Plik musi znajdować się w głównym katalogu konfiguracyjnym HA."
         }
       }
+    },
+    "export_diagnostics": {
+      "name": "Eksportuj diagnostykę",
+      "description": "Zapisuje pełny obraz działania Adaptive Cover, w tym konfigurację, aktualne decyzje algorytmu, statusy rolet i stany powiązanych encji.",
+      "fields": {
+        "filename": {
+          "name": "Nazwa pliku",
+          "description": "Nazwa pliku diagnostycznego do zapisu (np. adaptive_cover_diagnostics.json). Plik zostanie zapisany w głównym katalogu konfiguracyjnym Home Assistant."
+        },
+        "refresh": {
+          "name": "Odśwież dane przed eksportem",
+          "description": "Wymusza ponowne przeliczenie danych koordynatora przed zapisaniem pliku diagnostycznego."
+        }
+      }
     }
   }
 }
