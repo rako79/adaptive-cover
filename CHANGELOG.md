@@ -2,11 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-06-27
+
+### Naprawione
+- [Naprawione] Status algorytmu pokazuje teraz wyłączoną automatykę zamiast nieaktualnego powodu wyliczonej pozycji.
+- [Naprawione] Uzupełniono listę stanów sensora algorytmu o `control_disabled` i brakujący `strict_sun_block`.
+- [Naprawione] Koniec dziennego harmonogramu nie wymusza już pozycji `0%`, gdy aktywne jest nocne sterowanie klimatyczne.
+- [Naprawione] Nocne wietrzenie i zabezpieczenia klimatyczne mogą reagować także poza godzinami dziennego harmonogramu.
+- [Naprawione] Ruch wykonany przez dodatek nie jest już błędnie oznaczany jako ręczne sterowanie po osiągnięciu pozycji docelowej.
+- [Naprawione] Dostępny fizyczny czujnik opadów ma pierwszeństwo przed prognozą pogody, co zapobiega cyklicznemu zamykaniu i otwieraniu rolet podczas nocnego wietrzenia.
+
+### Dodane
+- [Dodane] Dodano konfigurowalną godzinę zakończenia nocnego wietrzenia; rolety są wtedy zamykane na `0%`.
+- [Zmienione] Ochrona przed świtem i poranna blokada słońca nie przerywają wietrzenia przed ustawioną godziną, jeśli nadal spełnione są warunki temperaturowe.
+
 ## [Unreleased] - 2026-06-18
 
 ### Naprawione
+- [Naprawione] Dodano nazwę przełącznika `dry_run_toggle` jako `Tryb testowy`, aby nie wyświetlał się jako nazwa pomieszczenia.
 - [Dodane] Rozszerzono `export_diagnostics` o `schema_version`, `configured_covers` oraz `cover_diagnostics` z czytelnym podsumowaniem każdej rolety.
+- [Dodane] Dodano do atrybutów diagnostycznych surowe odczyty `inside_temperature`, `lux`, `irradiance`, `outside_temperature_entity`, `rain_rate`, `weather_state` i `wind_gust`.
+- [Dodane] Dodano konfigurowalne utrzymanie ochrony termicznej po wyjściu słońca z zasięgu okna.
+- [Dodane] Dodano przełącznik nocnego wietrzenia oraz suwak pozycji wietrzenia nocnego w ustawieniach klimatycznych.
 - [Naprawione] Zmieniono blokadę `delta_time`, aby opierała się na ostatnim ruchu wykonanym przez dodatek, a nie na `last_updated` encji rolety w Home Assistant. Dzięki temu świeżo odświeżony stan rolety nie blokuje automatycznego domknięcia.
+- [Naprawione] Poprawiono wybór temperatury bieżącej w logice klimatycznej: algorytm używa temperatury pokoju, a temperatury zewnętrznej tylko jako awaryjnego fallbacku.
 - [Naprawione] Rozszerzono diagnostykę pominiętych ruchów o konkretny powód blokady, np. `time_delta_not_passed`, `manual_override_active` albo `position_delta_too_small`.
 - [Naprawione] Poprawiono polskie opisy usług w `services.yaml`.
 

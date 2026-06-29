@@ -83,6 +83,8 @@ from .const import (
     CONF_RAIN_POSITION,
     CONF_WIND_ENTITY,
     CONF_WIND_POSITION,
+    CONF_NIGHT_PURGE_ENABLED,
+    CONF_NIGHT_PURGE_END_TIME,
     CONF_OUTSIDE_THRESHOLD,
     CONF_DAWN_MONTH_START,
     CONF_DAWN_MONTH_END,
@@ -90,6 +92,8 @@ from .const import (
     CONF_COLD_THRESHOLD,
     CONF_WIND_THRESHOLD,
     CONF_PURGE_POS,
+    CONF_THERMAL_HOLD_AFTER_SUN,
+    CONF_THERMAL_HOLD_POSITION,
     DOMAIN,
     SensorType,
     CONF_MIN_POSITION,
@@ -348,7 +352,21 @@ CLIMATE_OPTIONS = vol.Schema(
         vol.Optional(CONF_DAWN_DURATION, default=60): vol.All(vol.Coerce(int), vol.Range(min=0, max=300)),
         vol.Optional(CONF_COLD_THRESHOLD, default=16): vol.All(vol.Coerce(int), vol.Range(min=-10, max=30)),
         vol.Optional(CONF_WIND_THRESHOLD, default=40): vol.All(vol.Coerce(int), vol.Range(min=0, max=150)),
-        vol.Optional(CONF_PURGE_POS, default=15): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_NIGHT_PURGE_ENABLED, default=True): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_NIGHT_PURGE_END_TIME, default="07:00:00"
+        ): selector.TimeSelector(),
+        vol.Optional(CONF_PURGE_POS, default=15): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=100, step=1, mode="slider", unit_of_measurement="%"
+            )
+        ),
+        vol.Optional(CONF_THERMAL_HOLD_AFTER_SUN, default=False): selector.BooleanSelector(),
+        vol.Optional(CONF_THERMAL_HOLD_POSITION, default=30): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=100, step=1, mode="slider", unit_of_measurement="%"
+            )
+        ),
     }
 )
 
@@ -756,7 +774,13 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_DAWN_DURATION: self.config.get(CONF_DAWN_DURATION, 60),
                 CONF_COLD_THRESHOLD: self.config.get(CONF_COLD_THRESHOLD, 16),
                 CONF_WIND_THRESHOLD: self.config.get(CONF_WIND_THRESHOLD, 40),
+                CONF_NIGHT_PURGE_ENABLED: self.config.get(CONF_NIGHT_PURGE_ENABLED, True),
+                CONF_NIGHT_PURGE_END_TIME: self.config.get(
+                    CONF_NIGHT_PURGE_END_TIME, "07:00:00"
+                ),
                 CONF_PURGE_POS: self.config.get(CONF_PURGE_POS, 15),
+                CONF_THERMAL_HOLD_AFTER_SUN: self.config.get(CONF_THERMAL_HOLD_AFTER_SUN, False),
+                CONF_THERMAL_HOLD_POSITION: self.config.get(CONF_THERMAL_HOLD_POSITION, 30),
                 CONF_RAIN_NIGHT_ONLY: self.config.get(CONF_RAIN_NIGHT_ONLY, False),
                 CONF_WINDOW_ENTITY: self.config.get(CONF_WINDOW_ENTITY),
                 CONF_WINDOW_OPEN_ACTION: self.config.get(CONF_WINDOW_OPEN_ACTION, WINDOW_ACTION_PAUSE),

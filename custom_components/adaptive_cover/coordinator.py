@@ -88,6 +88,8 @@ from .const import (
     CONF_MAX_POSITION,
     CONF_MIN_ELEVATION,
     CONF_MIN_POSITION,
+    CONF_NIGHT_PURGE_ENABLED,
+    CONF_NIGHT_PURGE_END_TIME,
     CONF_OUTSIDE_THRESHOLD,
     CONF_OUTSIDETEMP_ENTITY,
     CONF_PRESENCE_ENTITY,
@@ -121,6 +123,8 @@ from .const import (
     CONF_WIND_THRESHOLD,
     CONF_PURGE_POS,
     CONF_RAIN_NIGHT_ONLY,
+    CONF_THERMAL_HOLD_AFTER_SUN,
+    CONF_THERMAL_HOLD_POSITION,
     WINDOW_ACTION_BLOCK_CLOSING_ONLY,
     WINDOW_ACTION_MOVE_TO_POSITION,
     WINDOW_ACTION_PAUSE,
@@ -218,6 +222,9 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         )
         self._update_listener = None
         self._scheduled_time = dt_util.utcnow()
+        self._night_purge_update_listener = None
+        self._night_purge_scheduled_time: dt.datetime | None = None
+        self.config_entry.async_on_unload(self._async_cancel_night_purge_listener)
 
         self._cached_options = None
 
@@ -350,7 +357,6 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 else "current_tilt_position"
             )
             if position == self.target_call.get(entity_id):
-                self.wait_for_target[entity_id] = False
                 self.logger.debug("Position %s reached for %s", position, entity_id)
             self.logger.debug("Wait for target: %s", self.wait_for_target)
         else:
@@ -362,6 +368,75 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         if self._update_listener:
             self._update_listener()
             self._update_listener = None
+
+    @callback
+    def _async_cancel_night_purge_listener(self) -> None:
+        """Anuluj zaplanowane zamknięcie po nocnym wietrzeniu."""
+        if self._night_purge_update_listener:
+            self._night_purge_update_listener()
+            self._night_purge_update_listener = None
+        self._night_purge_scheduled_time = None
+
+    def _next_night_purge_close_time(self) -> dt.datetime | None:
+        """Wyznacz najbliższą godzinę zamknięcia po nocnym wietrzeniu."""
+        value = self.config_entry.options.get(
+            CONF_NIGHT_PURGE_END_TIME, "07:00:00"
+        )
+        try:
+            close_time = dt.time.fromisoformat(value)
+        except (TypeError, ValueError):
+            self.logger.warning("Invalid night purge end time: %s", value)
+            return None
+
+        now_local = dt_util.now()
+        target_local = dt.datetime.combine(
+            now_local.date(),
+            close_time,
+            tzinfo=dt_util.DEFAULT_TIME_ZONE,
+        )
+        if target_local <= now_local:
+            target_local = dt.datetime.combine(
+                now_local.date() + dt.timedelta(days=1),
+                close_time,
+                tzinfo=dt_util.DEFAULT_TIME_ZONE,
+            )
+        return dt_util.as_utc(target_local)
+
+    def _schedule_night_purge_close(self) -> None:
+        """Zaplanuj punktualne zamknięcie po nocnym wietrzeniu."""
+        enabled = self.config_entry.options.get(CONF_NIGHT_PURGE_ENABLED, True)
+        if not self._climate_mode or not enabled:
+            self._async_cancel_night_purge_listener()
+            return
+
+        target = self._next_night_purge_close_time()
+        if target is None or target == self._night_purge_scheduled_time:
+            return
+
+        self._async_cancel_night_purge_listener()
+        self._night_purge_update_listener = async_track_point_in_time(
+            self.hass,
+            self.async_close_after_night_purge,
+            target,
+        )
+        self._night_purge_scheduled_time = target
+        self.logger.debug("Night purge close scheduled at %s", target)
+
+    async def async_close_after_night_purge(self, _event) -> None:
+        """Zamknij rolety o skonfigurowanej godzinie końca wietrzenia."""
+        self._night_purge_update_listener = None
+        self._night_purge_scheduled_time = None
+
+        if self.control_toggle:
+            target = inverse_state(0) if self._inverse_state else 0
+            for cover in self.entities:
+                if await self.async_handle_window_policy(cover, target):
+                    continue
+                if not self.manager.is_cover_manual(cover):
+                    await self.async_set_manual_position(cover, target)
+
+        await self.async_refresh()
+        self._schedule_night_purge_close()
 
     async def async_timed_end_time(self) -> None:
         """Control state at end time."""
@@ -386,6 +461,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
 
         options = self.config_entry.options
         self._update_options(options)
+        self._schedule_night_purge_close()
 
         # Get data for the blind
         cover_data = self.get_blind_data(options=options)
@@ -433,7 +509,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         if self.first_refresh:
             await self.async_handle_first_refresh(state, options)
         if self.timed_refresh:
-            await self.async_handle_timed_refresh(options)
+            await self.async_handle_timed_refresh(state, options)
 
         normal_cover = self.normal_cover_state.cover
         # Run the solar_times method in a separate thread
@@ -450,6 +526,18 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             self.logger.debug("Sun start time: %s, Sun end time: %s", start, end)
         else:
             start, end = self._sun_start_time, self._sun_end_time
+
+        explanation = getattr(cover_data, "state_info", "auto")
+        state_reason = getattr(cover_data, "state_reason", "Działanie automatyczne.")
+        if self.control_toggle is False:
+            explanation = "control_disabled"
+            state_reason = (
+                "Automatyka jest wyłączona. Wyliczona pozycja nie zostanie ustawiona."
+            )
+        elif self.is_window_open:
+            explanation = "window_open"
+            state_reason = "Okno otwarte: wstrzymano adaptację."
+
         return AdaptiveCoverData(
             climate_mode_toggle=self.switch_mode,
             states={
@@ -457,8 +545,8 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 "start": start,
                 "end": end,
                 "control": self.control_method,
-                "explanation": "window_open" if self.is_window_open else getattr(cover_data, "state_info", "auto"),
-                "state_reason": "Okno otwarte: wstrzymano adaptację." if self.is_window_open else getattr(cover_data, "state_reason", "Działanie automatyczne."),
+                "explanation": explanation,
+                "state_reason": state_reason,
                 "sun_motion": normal_cover.valid,
                 "manual_override": self.manager.binary_cover_manual,
                 "manual_list": self.manager.manual_controlled,
@@ -479,6 +567,14 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 "window_open": self.is_window_open,
                 "window_open_action": self.window_open_action,
                 "window_open_position": self.window_open_position,
+                "night_purge_end_time": options.get(
+                    CONF_NIGHT_PURGE_END_TIME, "07:00:00"
+                ),
+                "night_purge_next_close": (
+                    self._night_purge_scheduled_time.isoformat()
+                    if self._night_purge_scheduled_time
+                    else None
+                ),
                 "sun_azimuth": state_attr(self.hass, "sun.sun", "azimuth"),
                 "sun_elevation": state_attr(self.hass, "sun.sun", "elevation"),
                 "last_skip_reason": self.manager.last_skip_reason,
@@ -488,6 +584,18 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 "cover_status": self.manager.cover_status,
                 "lux_low_light": self._lux_low_light_state,
                 "irradiance_low_light": self._irradiance_low_light_state,
+                "lux": _as_float(get_safe_state(self.hass, options.get(CONF_LUX_ENTITY))),
+                "irradiance": _as_float(
+                    get_safe_state(self.hass, options.get(CONF_IRRADIANCE_ENTITY))
+                ),
+                "outside_temperature_entity": _as_float(
+                    get_safe_state(self.hass, options.get(CONF_OUTSIDETEMP_ENTITY))
+                ),
+                "inside_temperature": (
+                    _as_float(self.last_climate_data.inside_temperature)
+                    if self.last_climate_data
+                    else None
+                ),
                 "current_temperature": (
                     self.last_climate_data.get_current_temperature
                     if self.last_climate_data
@@ -502,10 +610,17 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 "is_raining": (
                     self.last_climate_data.is_raining if self.last_climate_data else None
                 ),
+                "rain_rate": _as_float(
+                    get_safe_state(self.hass, options.get(CONF_RAIN_ENTITY))
+                ),
+                "weather_state": get_safe_state(self.hass, options.get(CONF_WEATHER_ENTITY)),
                 "wind_speed": (
                     self.last_climate_data.current_wind_speed
                     if self.last_climate_data
                     else None
+                ),
+                "wind_gust": _as_float(
+                    get_safe_state(self.hass, options.get(CONF_WIND_ENTITY))
                 ),
             },
         )
@@ -576,7 +691,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 if await self.async_handle_window_policy(cover, state):
                     continue
                 if (
-                    self.check_adaptive_time
+                    self.adaptive_movement_allowed
                     and not self.manager.is_cover_manual(cover)
                     and self.check_position_delta(cover, state, options)
                     and self.manager.can_move(
@@ -592,18 +707,25 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self.first_refresh = False
         self.logger.debug("First refresh handled")
 
-    async def async_handle_timed_refresh(self, options):
+    async def async_handle_timed_refresh(self, state: int, options):
         """Handle timed refresh."""
+        night_control = self.climate_night_control_active
         self.logger.debug(
-            "This is a timed refresh, using sunset position: %s",
+            "Timed refresh: night control=%s, calculated state=%s, sunset position=%s",
+            night_control,
+            state,
             options.get(CONF_SUNSET_POS),
         )
         if self.control_toggle:
             for cover in self.entities:
                 target = (
-                    inverse_state(options.get(CONF_SUNSET_POS))
-                    if self._inverse_state
-                    else options.get(CONF_SUNSET_POS)
+                    state
+                    if night_control
+                    else (
+                        inverse_state(options.get(CONF_SUNSET_POS))
+                        if self._inverse_state
+                        else options.get(CONF_SUNSET_POS)
+                    )
                 )
                 if await self.async_handle_window_policy(cover, target):
                     continue
@@ -629,7 +751,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
 
     def movement_block_reason(self, entity, state: int, options) -> str | None:
         """Zwróć konkretny powód zablokowania ruchu rolety."""
-        if not self.check_adaptive_time:
+        if not self.adaptive_movement_allowed:
             return "outside_adaptive_time"
         if not self.check_position_delta(entity, state, options):
             return "position_delta_too_small"
@@ -801,6 +923,20 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         if self._start_time and self._end_time and self._start_time > self._end_time:
             self.logger.error("Start time is after end time")
         return self.before_end_time and self.after_start_time
+
+    @property
+    def climate_night_control_active(self) -> bool:
+        """Zezwalaj trybowi klimatycznemu reagować przez całą noc."""
+        return bool(
+            self._switch_mode
+            and getattr(self, "normal_cover_state", None)
+            and self.normal_cover_state.cover.sunset_valid
+        )
+
+    @property
+    def adaptive_movement_allowed(self) -> bool:
+        """Uwzględnij nocne sterowanie klimatyczne poza dziennym harmonogramem."""
+        return self.check_adaptive_time or self.climate_night_control_active
 
     @property
     def after_start_time(self):
@@ -1063,6 +1199,10 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             options.get(CONF_WIND_POSITION, 0),
             self._strict_sun_block_toggle,
             options.get(CONF_WEATHER_FORECAST_TEMP),
+            options.get(CONF_THERMAL_HOLD_AFTER_SUN, False),
+            options.get(CONF_THERMAL_HOLD_POSITION, 30),
+            options.get(CONF_NIGHT_PURGE_ENABLED, True),
+            options.get(CONF_NIGHT_PURGE_END_TIME, "07:00:00"),
         ]
 
     def climate_mode_data(self, options, cover_data):

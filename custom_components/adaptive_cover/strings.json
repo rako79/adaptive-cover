@@ -89,7 +89,12 @@
           "lux_entity": "Lux sensor (optional)",
           "lux_threshold": "Lux threshold",
           "irradiance_entity": "Irradiance sensor (optional)",
-          "irradiance_threshold": "Irradiance threshold"
+          "irradiance_threshold": "Irradiance threshold",
+          "night_purge_enabled": "Enable night purge",
+          "night_purge_end_time": "Night purge closing time",
+          "purge_pos": "Night purge cover position (%)",
+          "thermal_hold_after_sun": "Keep thermal protection after sun leaves the window",
+          "thermal_hold_position": "Post-sun thermal protection position (%)"
         },
         "data_description": {
           "presence_entity": "Entity representing room or home presence status",
@@ -101,7 +106,11 @@
           "lux_entity": "Use lux sensor to determine if cover should reduce glare in presence mode",
           "lux_threshold": "Threshold for lux sensor, above this value glare should be reduced",
           "irradiance_entity": "Use irradiance sensor to determine if cover should reduce glare in presence mode",
-          "irradiance_threshold": "Threshold for irradiance sensor, above this value glare should be reduced"
+          "irradiance_threshold": "Threshold for irradiance sensor, above this value glare should be reduced",
+          "night_purge_enabled": "Allows the cover to slightly open after sunset when outside is cooler than the room.",
+          "night_purge_end_time": "Time at which covers are closed after night purge.",
+          "thermal_hold_after_sun": "Do not immediately return to the default position if the room is still overheated.",
+          "thermal_hold_position": "Position used while holding thermal protection after direct sun leaves the window."
         },
         "description": "Add additional climate configuration variables.",
         "title": "Climate settings"
@@ -320,7 +329,12 @@
           "lux_entity": "Lux sensor (optional)",
           "lux_threshold": "Lux threshold",
           "irradiance_entity": "Irradiance sensor (optional)",
-          "irradiance_threshold": "Irradiance threshold"
+          "irradiance_threshold": "Irradiance threshold",
+          "night_purge_enabled": "Enable night purge",
+          "night_purge_end_time": "Night purge closing time",
+          "purge_pos": "Night purge cover position (%)",
+          "thermal_hold_after_sun": "Keep thermal protection after sun leaves the window",
+          "thermal_hold_position": "Post-sun thermal protection position (%)"
         },
         "data_description": {
           "presence_entity": "Entity representing room or home presence status",
@@ -332,7 +346,11 @@
           "lux_entity": "Use lux sensor to determine if cover should reduce glare in presence mode",
           "lux_threshold": "Threshold for lux sensor, above this value glare should be reduced",
           "irradiance_entity": "Use irradiance sensor to determine if cover should reduce glare in presence mode",
-          "irradiance_threshold": "Threshold for irradiance sensor, above this value glare should be reduced"
+          "irradiance_threshold": "Threshold for irradiance sensor, above this value glare should be reduced",
+          "night_purge_enabled": "Allows the cover to slightly open after sunset when outside is cooler than the room.",
+          "night_purge_end_time": "Time at which covers are closed after night purge.",
+          "thermal_hold_after_sun": "Do not immediately return to the default position if the room is still overheated.",
+          "thermal_hold_position": "Position used while holding thermal protection after direct sun leaves the window."
         },
         "description": "Add additional climate configuration variables.",
         "title": "Climate settings"
@@ -492,6 +510,20 @@
           "name": "Refresh before export",
           "description": "Recalculate coordinator data before saving the diagnostics file."
         }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "algorithm_status": {
+        "state": {
+          "control_disabled": "Automation Disabled"
+        }
+      }
+    },
+    "switch": {
+      "dry_run_toggle": {
+        "name": "Dry Run"
       }
     }
   }

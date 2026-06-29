@@ -266,9 +266,10 @@ class AdaptiveCoverExplainSensorEntity(
     _attr_translation_key = "algorithm_status" # Tłumaczenia z plików językowych
     _attr_device_class = SensorDeviceClass.ENUM # Mówi HA, że to skończona lista wariantów
     _attr_options = [
-        "auto", "dawn_protection", "rain_detected", "wind_detected",
-        "cold_protection", "night_purge", "max_limit", "min_limit",
-        "night_mode", "sun_shadow", "calculating", "window_open"
+        "auto", "control_disabled", "dawn_protection", "strict_sun_block",
+        "rain_detected", "wind_detected", "cold_protection", "night_purge",
+        "thermal_hold", "max_limit", "min_limit", "night_mode", "sun_shadow",
+        "calculating", "window_open",
     ]
 
     def __init__(

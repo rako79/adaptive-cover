@@ -119,7 +119,11 @@
           "purge_pos": "Night purge cover position (%)",
           "rain_night_only": "Rain protection only at night (Ignore daytime rain)",
           "rain_position": "Rain protection position (%)",
-          "wind_position": "Wind protection position (%)"
+          "wind_position": "Wind protection position (%)",
+          "night_purge_enabled": "Enable night purge",
+          "night_purge_end_time": "Night purge closing time",
+          "thermal_hold_after_sun": "Keep thermal protection after sun leaves the window",
+          "thermal_hold_position": "Post-sun thermal protection position (%)"
         },
         "data_description": {
           "presence_entity": "Entity representing room or home presence status",
@@ -139,7 +143,11 @@
           "rain_entity": "Select a dedicated rain sensor (takes priority over weather entity data)",
           "wind_entity": "Select a dedicated wind sensor in km/h (takes priority over weather entity data)",
           "rain_position": "Position used when rain protection is active",
-          "wind_position": "Position used when wind protection is active"
+          "wind_position": "Position used when wind protection is active",
+          "night_purge_enabled": "Allows the cover to slightly open after sunset when outside is cooler than the room.",
+          "night_purge_end_time": "Time at which covers are closed after night purge.",
+          "thermal_hold_after_sun": "Do not immediately return to the default position if the room is still overheated.",
+          "thermal_hold_position": "Position used while holding thermal protection after direct sun leaves the window."
         },
         "description": "Add additional climate configuration variables.",
         "title": "Climate settings"
@@ -397,7 +405,11 @@
           "purge_pos": "Night purge cover position (%)",
           "rain_night_only": "Rain protection only at night (Ignore daytime rain)",
           "rain_position": "Rain protection position (%)",
-          "wind_position": "Wind protection position (%)"
+          "wind_position": "Wind protection position (%)",
+          "night_purge_enabled": "Enable night purge",
+          "night_purge_end_time": "Night purge closing time",
+          "thermal_hold_after_sun": "Keep thermal protection after sun leaves the window",
+          "thermal_hold_position": "Post-sun thermal protection position (%)"
         },
         "data_description": {
           "presence_entity": "Entity representing room or home presence status",
@@ -417,7 +429,11 @@
           "rain_entity": "Select a dedicated rain sensor (takes priority over weather entity data)",
           "wind_entity": "Select a dedicated wind sensor in km/h (takes priority over weather entity data)",
           "rain_position": "Position used when rain protection is active",
-          "wind_position": "Position used when wind protection is active"
+          "wind_position": "Position used when wind protection is active",
+          "night_purge_enabled": "Allows the cover to slightly open after sunset when outside is cooler than the room.",
+          "night_purge_end_time": "Time at which covers are closed after night purge.",
+          "thermal_hold_after_sun": "Do not immediately return to the default position if the room is still overheated.",
+          "thermal_hold_position": "Position used while holding thermal protection after direct sun leaves the window."
         },
         "description": "Add additional climate configuration variables.",
         "title": "Climate settings"
@@ -624,6 +640,7 @@
         "name": "Algorithm Status",
         "state": {
           "auto": "Auto (Sun/Climate)",
+          "control_disabled": "Automation Disabled",
           "dawn_protection": "Dawn Protection (Closed)",
           "strict_sun_block": "Strict Summer Sun Block (Closed)",
           "rain_detected": "Rain Detected (Closed)",
@@ -635,7 +652,8 @@
           "night_mode": "Night Mode (Closed after sunset)",
           "sun_shadow": "Opened: Sun outside window (Shadow)",
           "calculating": "Calculating...",
-          "window_open": "Window/Door Open"
+          "window_open": "Window/Door Open",
+          "thermal_hold": "Thermal Protection Hold"
         }
       },
       "state_reason": {
@@ -666,6 +684,9 @@
       },
       "strict_sun_block_toggle": {
         "name": "Strict Sun Block"
+      },
+      "dry_run_toggle": {
+        "name": "Dry Run"
       }
     },
     "button": {

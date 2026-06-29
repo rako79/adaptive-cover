@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 import contextlib
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 import numpy as np
 import pandas as pd
@@ -340,43 +340,49 @@ class ClimateCoverData:
     wind_position: int
     strict_sun_block_toggle: bool = False
     forecast_temperature: float | None = None
+    thermal_hold_after_sun: bool = False
+    thermal_hold_position: int = 30
+    night_purge_enabled: bool = True
+    night_purge_end_time: str = "07:00:00"
 
     @property
     def is_raining(self) -> bool:
         """Check for rain using dedicated sensor or weather entity."""
-        # --- 1. ZBIERAMY DANE: Sprawdzamy, czy fizycznie pada deszcz ---
         is_actually_raining = False
+        rain_sensor_available = False
 
-        # Sprawdź dedykowany czujnik deszczu (np. binary_sensor)
         if self.rain_entity:
             state = get_safe_state(self.hass, self.rain_entity)
-            if str(state).lower() in ["on", "true", "detected", "1"]:
-                is_actually_raining = True
-            else:
-                # Jeśli to sensor liczbowy (np. mm/h), uznamy deszcz powyżej 0
-                try:
-                    if float(state) > 0:
-                        is_actually_raining = True
-                except (ValueError, TypeError):
-                    pass
+            rain_sensor_available = state is not None
+            if rain_sensor_available:
+                normalized_state = str(state).lower()
+                is_actually_raining = normalized_state in [
+                    "on",
+                    "true",
+                    "detected",
+                    "1",
+                ]
+                if not is_actually_raining:
+                    rain_rate = _as_float(state)
+                    is_actually_raining = rain_rate is not None and rain_rate > 0
 
-        # Fallback do encji pogody (jeśli czujnik opadów nie wykrył deszczu)
-        if not is_actually_raining:
+        # Prognoza jest tylko rezerwą. Nie może nadpisywać prawidłowego odczytu 0 mm/h.
+        if not rain_sensor_available:
             weather = get_safe_state(self.hass, self.weather_entity)
-            if weather in ['rainy', 'pouring', 'lightning-rainy', 'hail', 'snowy', 'snowy-rainy']:
+            if weather in [
+                "rainy",
+                "pouring",
+                "lightning-rainy",
+                "hail",
+                "snowy",
+                "snowy-rainy",
+            ]:
                 is_actually_raining = True
 
-        # --- 2. NOWA LOGIKA: Zignoruj deszcz, jeśli jest dzień i opcja jest włączona ---
         if is_actually_raining:
-            # Pobieramy ustawienie z opcji (zabezpieczenie na wypadek braku klucza)
-            # Jeśli self.config to słownik/ConfigEntry, używamy metody pobierania opcji
             night_only = self.rain_night_only
-
-            # Sprawdzamy pozycję słońca prosto z Home Assistanta, żeby było niezawodnie
-            sun_state = self.hass.states.get('sun.sun')
-            is_daytime = sun_state and sun_state.state == 'above_horizon'
-
-            # Jeśli włączono opcję ignorowania w dzień ORAZ słońce jest nad horyzontem
+            sun_state = self.hass.states.get("sun.sun")
+            is_daytime = sun_state and sun_state.state == "above_horizon"
             return not (night_only and is_daytime)
 
         return False
@@ -452,11 +458,10 @@ class ClimateCoverData:
     @property
     def get_current_temperature(self) -> float:
         """Get temperature."""
-        if self.temp_switch:
-            if self.outside_temperature is not None:
-                return _as_float(self.outside_temperature)
         if self.inside_temperature is not None:
             return _as_float(self.inside_temperature)
+        if self.temp_switch and self.outside_temperature is not None:
+            return _as_float(self.outside_temperature)
 
     @property
     def is_presence(self):
@@ -831,6 +836,25 @@ class ClimateCoverState(NormalCoverState):
             return self.tilt_with_presence(degrees)
         return self.tilt_without_presence(degrees)
 
+    def _night_purge_conditions_met(self, now: datetime) -> bool:
+        """Sprawdź warunki wietrzenia do skonfigurowanej godziny zamknięcia."""
+        if not self.climate_data.night_purge_enabled:
+            return False
+
+        try:
+            purge_end = time.fromisoformat(self.climate_data.night_purge_end_time)
+        except (TypeError, ValueError):
+            purge_end = time(7, 0)
+
+        purge_period = self.cover.sunset_valid or now.time() < purge_end
+        inside = self.climate_data.inside_temperature
+        outside = self.climate_data.outside_temperature
+        comfort = self.climate_data.temp_low
+        if not purge_period or inside is None or outside is None or comfort is None:
+            return False
+
+        return float(inside) > float(comfort) and float(outside) < float(inside)
+
     def get_state(self) -> int:  # noqa: C901
         """Return state."""
         self.cover.state_info = "auto"
@@ -866,18 +890,23 @@ class ClimateCoverState(NormalCoverState):
         m_start = getattr(self.climate_data, "dawn_start_month", 5)
         m_end = getattr(self.climate_data, "dawn_end_month", 10)
         duration = getattr(self.climate_data, "dawn_duration_min", 60)
+        night_purge_active = self._night_purge_conditions_met(now)
 
         if result is None and m_start <= now.month <= m_end:
             now_utc = datetime.utcnow()
             sunrise = self.cover.sun_data.sunrise().replace(tzinfo=None)
             time_to_sunrise = (sunrise - now_utc).total_seconds()
-            if 0 < time_to_sunrise < (duration * 60):
+            if 0 < time_to_sunrise < (duration * 60) and not night_purge_active:
                 self.cover.state_info = "dawn_protection"
                 self.cover.state_reason = "Ochrona przed świtem (blokowanie wczesnego słońca latem)."
                 result = 0
 
         # 2.5 Strict Sun Block
-        if result is None and getattr(self.climate_data, "strict_sun_block_toggle", False):
+        if (
+            result is None
+            and not night_purge_active
+            and getattr(self.climate_data, "strict_sun_block_toggle", False)
+        ):
             if m_start <= now.month <= m_end:
                 if self.cover.direct_sun_valid:
                     # Sprawdź, czy faktycznie jest słonecznie i nie pada
@@ -910,16 +939,17 @@ class ClimateCoverState(NormalCoverState):
                     result = 0
 
                 # Purge (wietrzenie) również tylko w nocy
-                if result is None and self.cover.sunset_valid:
-                    inside = self.climate_data.inside_temperature
-                    temp_comfort = self.climate_data.temp_low
+                if (
+                    result is None
+                    and night_purge_active
+                ):
                     purge_val = getattr(self.climate_data, "purge_pos", 15)
-
-                    if inside is not None and temp_comfort is not None:
-                        if float(inside) > float(temp_comfort) and float(outside) < float(inside):
-                            self.cover.state_info = "night_purge"
-                            self.cover.state_reason = "Nocne wietrzenie (Night Purge): lekko uchylone rolety, aby schłodzić pokój."
-                            result = purge_val if self.climate_data.blind_type != "cover_tilt" else 50
+                    self.cover.state_info = "night_purge"
+                    self.cover.state_reason = (
+                        "Nocne wietrzenie (Night Purge): lekko uchylone rolety, "
+                        "aby schłodzić pokój."
+                    )
+                    result = int(purge_val)
 
         # 4. Powrót do standardowej logiki (dla trybów dziennych / nocnych jeśli żaden z powyższych)
         if result is None:
@@ -937,8 +967,19 @@ class ClimateCoverState(NormalCoverState):
                  self.cover.state_reason = "Tryb nocny: słońce po zachodzie."
             elif not self.cover.valid:
                  self.cover.state_info = "sun_shadow"
-                 result = self.cover.default
-                 self.cover.state_reason = "Słońce poza zasięgiem okna (okno w cieniu)."
+                 if (
+                     self.climate_data.thermal_hold_after_sun
+                     and self.climate_data.thermal_stress > 0.0
+                 ):
+                     self.cover.state_info = "thermal_hold"
+                     result = int(self.climate_data.thermal_hold_position)
+                     self.cover.state_reason = (
+                         "Utrzymanie ochrony termicznej: pokój nadal jest nagrzany "
+                         "mimo wyjścia słońca z zasięgu okna."
+                     )
+                 else:
+                     result = self.cover.default
+                     self.cover.state_reason = "Słońce poza zasięgiem okna (okno w cieniu)."
 
         # --- Aplikacja nadrzędnych limitów ---
         if self.cover.apply_max_position and result > self.cover.max_pos:

@@ -180,7 +180,7 @@ class AdaptiveCoverSwitch(
             for entity in self.coordinator.entities:
                 if (
                     not self.coordinator.manager.is_cover_manual(entity)
-                    and self.coordinator.check_adaptive_time
+                    and self.coordinator.adaptive_movement_allowed
                 ):
                     await self.coordinator.async_set_position(
                         entity, self.coordinator.state
