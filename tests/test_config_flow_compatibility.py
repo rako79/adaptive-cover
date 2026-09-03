@@ -49,7 +49,7 @@ class OptionsFlowCompatibilityTests(unittest.TestCase):
         forbidden_assignments = [
             node
             for node in ast.walk(options_class)
-            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            if isinstance(node, ast.Assign | ast.AnnAssign)
             for target in (
                 node.targets if isinstance(node, ast.Assign) else [node.target]
             )

@@ -33,7 +33,7 @@ def function_named(tree: ast.AST, name: str) -> ast.FunctionDef | ast.AsyncFunct
     return next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
         and node.name == name
     )
 
