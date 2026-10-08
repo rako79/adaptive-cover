@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import isfinite
+
 import datetime as dt
 
 import numpy as np
@@ -117,7 +119,8 @@ def state_attr(hass, entity_id: str, attr_name: str):
 def _as_float(value, default=None):
     """Zamień wartość Home Assistant na liczbę, gdy jest dostępna."""
     try:
-        return float(value)
+        result = float(value)
+        return result if isfinite(result) else default
     except (TypeError, ValueError):
         return default
 
@@ -279,9 +282,14 @@ class CoordinatorDataMixin:
 
     def _get_current_position(self, entity) -> int | None:
         """Get current position of cover."""
+        cover_state = self.hass.states.get(entity)
+        if cover_state is None or cover_state.state in {"unknown", "unavailable"}:
+            return None
         if self._cover_type == "cover_tilt":
-            return state_attr(self.hass, entity, "current_tilt_position")
-        return state_attr(self.hass, entity, "current_position")
+            position = _as_float(cover_state.attributes.get("current_tilt_position"))
+        else:
+            position = _as_float(cover_state.attributes.get("current_position"))
+        return position if position is not None and 0 <= position <= 100 else None
 
     def check_position(self, entity, state):
         """Check if position is different as state."""
@@ -600,6 +608,7 @@ class CoordinatorDataMixin:
     def climate_mode_data(self, options, cover_data):
         """Update climate mode data and control method."""
         climate = self.get_climate_data(options, cover_data)
+        climate.night_purge_previous_active = self._night_purge_active
         has_direct_sun = cover_data.direct_sun_valid and not climate.is_raining
         if climate.irradiance_entity:
             irradiance = climate.irradiance_value
@@ -627,6 +636,7 @@ class CoordinatorDataMixin:
         climate.last_direct_sun_at = self._last_direct_sun_at
         climate_state = ClimateCoverState(cover_data, climate)
         decision = climate_state.get_decision()
+        self._night_purge_active = self._switch_mode and decision.code == "night_purge"
         self._calculated_decision = decision
         self.climate_state = round(decision.target_position)
         self.last_decision_trace = list(climate_state.decision_trace)

@@ -59,6 +59,8 @@ class CoordinatorEventsMixin:
         if self._diagnostic_refresh or not self._runtime_initialized:
             return 0, set(), []
         generation, triggers = self._pending_refreshes.drain()
+        if not triggers:
+            triggers = frozenset({RefreshTrigger.PERIODIC})
         cover_events = list(self._pending_cover_events)
         self._pending_cover_events.clear()
         self._active_refresh_generation = generation
@@ -98,12 +100,14 @@ class CoordinatorEventsMixin:
         await self.async_refresh()
 
     async def async_diagnostic_refresh(self) -> None:
-        """Refresh calculations without issuing physical cover commands."""
-        self._diagnostic_refresh = True
-        try:
-            await self.async_request_refresh()
-        finally:
-            self._diagnostic_refresh = False
+        """Przelicz eksport w osobnym cyklu bez przejmowania zdarzeń wykonawczych."""
+        async with self._update_lock:
+            self._diagnostic_refresh = True
+            try:
+                data = await self.async_run_update_pipeline()
+            finally:
+                self._diagnostic_refresh = False
+            self.async_set_updated_data(data)
 
     def _create_background_task(self, target, name: str):
         """Create a lifecycle-bound task which never delays Home Assistant startup."""
@@ -336,8 +340,9 @@ class CoordinatorEventsMixin:
             start_time=self._start_time,
         )
 
-    async def async_timed_end_time(self) -> None:
-        """Control state at end time."""
+    async def async_timed_end_time(self, target: dt.datetime | None = None) -> None:
+        """Zaplanuj zamknięcie na właściwy dzień także dla zakresu przez północ."""
+        target = target if target is not None else self._end_time
         self.logger.debug("Scheduling end time update at %s", self._end_time)
         self._async_cancel_update_listener()
         self.logger.debug(
@@ -349,7 +354,7 @@ class CoordinatorEventsMixin:
         )
         self._update_listener = self.schedule_controller.schedule(
             "end_time",
-            self._end_time,
+            target,
             self.async_timed_refresh,
         )
-        self._scheduled_time = self._end_time
+        self._scheduled_time = target

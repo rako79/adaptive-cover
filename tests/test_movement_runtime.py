@@ -83,7 +83,9 @@ class FakeManager:
         """Zapisz ostatni status."""
         self.statuses.append((entity, status, reason))
 
-    def record_move(self, entity, service, data, *, dry_run=False) -> None:
+    def record_move(
+        self, entity, service, data, *, dry_run=False, command_context=None
+    ) -> None:
         """Zapisz polecenie uwzględniane przez limity."""
         self.moves.append((entity, service, dict(data), dry_run))
 

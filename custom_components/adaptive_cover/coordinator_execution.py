@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 
 from homeassistant.util import dt as dt_util
 
@@ -17,6 +18,10 @@ from .decision import (
     behavioral_learning_allowed,
 )
 from .models import StateChangedData
+
+THERMAL_CLOSING_DECISION_CODES = frozenset(
+    {"auto", "strict_sun_block", "thermal_hold"}
+)
 
 
 class CoordinatorExecutionMixin:
@@ -84,7 +89,7 @@ class CoordinatorExecutionMixin:
             return False
 
         if action == WINDOW_ACTION_MOVE_TO_POSITION:
-            target = int(self.window_open_position)
+            target = self._target_for_entity(entity, int(self.window_open_position))
             self.manager.set_status(entity, "window_open", "moving_to_window_position")
             if self.check_position(entity, target):
                 await self.async_set_manual_position(
@@ -170,10 +175,16 @@ class CoordinatorExecutionMixin:
             self.manager.set_status(entity, "skipped", block_reason)
 
     def _target_for_entity(self, entity: str, state: int) -> int:
-        """Apply learning only to comfort decisions, never to safety positions."""
+        """Zastosuj uczenie komfortu z zachowaniem fizycznych limitów pozycji."""
         if self._decision_code() in LEARNABLE_DECISION_CODES:
-            return self.learner.get_adjusted_position(entity, state)
-        return state
+            state = self.learner.get_adjusted_position(entity, state)
+        cover = getattr(getattr(self, "normal_cover_state", None), "cover", None)
+        if cover is not None:
+            if cover.apply_max_position and cover.max_pos is not None:
+                state = min(state, int(cover.max_pos))
+            if cover.apply_min_position and cover.min_pos is not None:
+                state = max(state, int(cover.min_pos))
+        return int(state)
 
     def _decision_code(self) -> str:
         """Return the decision code currently selected by the calculator."""
@@ -186,6 +197,7 @@ class CoordinatorExecutionMixin:
         """Zwróć konkretny powód zablokowania ruchu rolety."""
         decision_code = self._decision_code()
         emergency = decision_code in EMERGENCY_DECISION_CODES
+        cooling_release = self._is_cooling_release(entity, state)
         if (
             decision_code not in SCHEDULE_EXEMPT_DECISION_CODES
             and not self.adaptive_movement_allowed
@@ -193,7 +205,7 @@ class CoordinatorExecutionMixin:
             return "outside_adaptive_time"
         if not self.check_position_delta(entity, state, options):
             return "position_delta_too_small"
-        if not emergency and not self.check_time_delta(entity):
+        if not emergency and not cooling_release and not self.check_time_delta(entity):
             return "time_delta_not_passed"
         if not emergency and self.manager.is_cover_manual(entity):
             return "manual_override_active"
@@ -202,9 +214,44 @@ class CoordinatorExecutionMixin:
             self.global_cooldown,
             self.max_moves_per_hour,
             self.max_moves_per_day,
+            bypass_cooldown=cooling_release,
         ):
             return self.manager.last_skip_reason.get(entity, "movement_limit")
         return None
+
+    def _is_cooling_release(self, entity: str, state: int) -> bool:
+        """Rozpoznaj bezpieczne otwarcie po niedawnym domknięciu słonecznym."""
+        current = self._get_current_position(entity)
+        climate = getattr(self, "last_climate_data", None)
+        last_call = self.manager.last_service_call.get(entity, {})
+        service_data = last_call.get("data", {})
+        previous_target = service_data.get(
+            "position", service_data.get("tilt_position")
+        )
+        previous_code = (
+            last_call.get("context", {}).get("decision", {}).get("code")
+        )
+
+        try:
+            values = (
+                float(current),
+                float(state),
+                float(previous_target),
+                float(climate.inside_temperature),
+                float(climate.outside_temperature),
+                float(climate.thermal_hold_release_delta),
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+        current_position, target, previous, inside, outside, release_delta = values
+        return bool(
+            all(isfinite(value) for value in values)
+            and previous_code in THERMAL_CLOSING_DECISION_CODES
+            and target > current_position
+            and previous < target
+            and outside <= inside - release_delta
+        )
 
     async def async_set_position(self, entity, state: int):
         """Ustaw pozycję przez wspólny wykonawca ruchów."""

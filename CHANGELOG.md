@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-09-21
+
+### Naprawione
+- [Naprawione] Chłodniejsze powietrze zewnętrzne o skonfigurowaną przewagę chłodzenia zwalnia ochronę termiczną oraz ścisłą blokadę słońca, również przy bezpośrednim słońcu. Krótkie otwarcie po takim domknięciu omija tylko odstęp czasowy i cooldown; nadal respektuje limity godzinowe i dobowe, ręczne przejęcie oraz politykę otwartego okna.
+- [Naprawione] Identyczne polecenia podczas oczekiwania na ruch nie są powielane; wywołania dla jednej rolety oraz cykle koordynatora są serializowane.
+- [Naprawione] Nieaktualne retry jest anulowane również podczas blokady nowego celu przez limity. Weryfikacja następuje po 45 sekundach lub potwierdzeniu napędu, a ostatnie ponowienie jest sprawdzane przed zgłoszeniem niepowodzenia.
+- [Naprawione] Okresowe przeliczenie co minutę przywraca sterowanie po wygaśnięciu ograniczeń bez oczekiwania na zmianę czujnika; limity ruchów pozostają aktywne.
+- [Naprawione] Eksport diagnostyki nie koliduje z cyklem wykonawczym i nie przejmuje zdarzeń harmonogramu.
+- [Naprawione] Powtórzone raporty tej samej pozycji i stany przejściowe nie uruchamiają ręcznego przejęcia ani uczenia. Korekty uczą pozostały błąd i respektują fizyczne limity pozycji.
+- [Naprawione] Blokada silnego słońca respektuje histerezę światła. Harmonogram przechodzący przez północ wybiera właściwy dzień zamknięcia, również przy zmianie czasu.
+- [Naprawione] Tryb podstawowy nie dziedziczy kodu decyzji klimatycznej; pozycja nocna nie jest traktowana jako komfortowy cel do uczenia.
+- [Naprawione] Niedostępne pozycje i niepoprawne liczby nie trafiają do obliczeń. Eksport zachowuje wartości logiczne jako true/false.
+
+### Zmienione
+- [Zmienione] Nocne przewietrzanie otrzymało histerezę: start powyżej temp_low + 0,5°C przy różnicy wewnątrz/na zewnątrz ponad 1°C; zatrzymanie przy temp_low lub różnicy nie większej niż 0,2°C. Zachowano pięciominutowe potwierdzanie skoków temperatury ponad 3°C.
+
+### Dodane
+- [Dodane] Historia poleceń zawiera snapshot decyzji i jej śladu, generację, wyzwalacze, odczyty, pozycję początkową, cel, bias i rodzaj polecenia. Diagnostyka eksportuje również termin końca ręcznego przejęcia.
+- [Dodane] Testy audytu obejmują sekwencje dnia i nocy, limity, duplikaty poleceń, współbieżność, harmonogramy, polityki okna i BehavioralLearner. Szczegóły i wyniki znajdują się w AUDYT_AUTOMATYKI_2026-09-21.md.
+- [Dodane] Potwierdzono 150 testów na HA 2026.7.4 i 150 testów na HA 2026.9.0 oraz poprawny wynik Ruff dla całej integracji i testów.
+
 ## [Unreleased] - 2026-08-03
 
 ### Dodane

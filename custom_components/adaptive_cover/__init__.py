@@ -140,7 +140,9 @@ def _json_safe(value):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, list | tuple | set | frozenset):
         return [_json_safe(item) for item in value]
-    if isinstance(value, Integral) and not isinstance(value, bool):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, Integral):
         return int(value)
     if isinstance(value, Real):
         numeric = float(value)
@@ -431,6 +433,7 @@ def _coordinator_runtime(coordinator: AdaptiveDataUpdateCoordinator | None) -> d
         "manager": {
             "manual_control": manager.manual_control,
             "manual_control_time": manager.manual_control_time,
+            "manual_control_until": manager.manual_control_until,
             "manual_reset_duration_seconds": manager.reset_duration.total_seconds(),
             "cover_status": manager.cover_status,
             "last_skip_reason": manager.last_skip_reason,

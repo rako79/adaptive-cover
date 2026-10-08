@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+from copy import deepcopy
+from math import isfinite
 from typing import Protocol
 
 from homeassistant.components.cover import DOMAIN as COVER_DOMAIN
@@ -62,6 +64,8 @@ class CoverMovementExecutor:
         self.verify_task_metadata: dict[str, dict] = {}
         self.command_generation: dict[str, int] = {}
         self.last_command_at: dict[str, dt.datetime] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._command_contexts: dict[str, dict] = {}
 
     def cancel(self) -> None:
         """Anuluj wszystkie zadania weryfikacyjne podczas unload."""
@@ -101,7 +105,7 @@ class CoverMovementExecutor:
 
         if self.is_waiting(entity):
             if target_reached:
-                self.wait_for_target[entity] = False
+                self._complete_from_event(entity)
                 return True
             if command_is_recent:
                 return True
@@ -110,7 +114,39 @@ class CoverMovementExecutor:
             self.wait_for_target[entity] = False
             return False
 
-        return bool(command_is_recent and target_reached)
+        cancelled_in_motion = (
+            self.verify_task_metadata.get(entity, {}).get("outcome")
+            == "retry_conditions_changed"
+        )
+        return bool(command_is_recent and (target_reached or cancelled_in_motion))
+
+    def _complete_from_event(self, entity: str) -> None:
+        """Zakończ weryfikację od razu po potwierdzeniu napędu."""
+        self._cancel_previous_verification(entity)
+        self._finish_verification(
+            entity, self.command_generation.get(entity, 0), "target_verified_by_event"
+        )
+
+    def reconcile(self, entity: str, target: int) -> None:
+        """Anuluj stare retry również wtedy, gdy nowy ruch blokują limity."""
+        if entity not in self.verify_tasks:
+            return
+        owner = self.context
+        if (
+            not owner.control_toggle
+            or self.target_for(entity) != target
+            or owner.manager.is_cover_manual(entity)
+            or (
+                owner.is_window_open
+                and owner.window_open_action in {"pause", "return_after_close"}
+            )
+        ):
+            self._cancel_previous_verification(entity)
+            self._finish_verification(
+                entity,
+                self.command_generation.get(entity, 0),
+                "retry_conditions_changed",
+            )
 
     def update_metadata(
         self,
@@ -137,6 +173,22 @@ class CoverMovementExecutor:
         enforce_current_target: bool = True,
     ) -> MovementResult:
         """Wyślij polecenie i zaplanuj jego weryfikację."""
+        async with self._locks.setdefault(entity, asyncio.Lock()):
+            return await self._async_set_position(
+                entity, state, enforce_current_target=enforce_current_target
+            )
+
+    async def _async_set_position(
+        self, entity: str, state: int, *, enforce_current_target: bool
+    ) -> MovementResult:
+        """Wykonaj polecenie po zakończeniu wcześniejszego wywołania usługi."""
+        owner = self.context
+        decision = getattr(owner, "last_decision", None)
+        if enforce_current_target and decision is not None:
+            if owner._target_for_entity(entity, decision.target_position) != state:
+                return MovementResult(
+                    entity, state, MovementOutcome.SKIPPED, "superseded_target"
+                )
         blocked = self._preflight(entity, state)
         if blocked is not None:
             return blocked
@@ -179,7 +231,31 @@ class CoverMovementExecutor:
                 MovementOutcome.BLOCKED,
                 "integration_unloading",
             )
+        if not owner.control_toggle:
+            return MovementResult(
+                entity, state, MovementOutcome.BLOCKED, "control_disabled"
+            )
+        if self.is_waiting(entity) and self.target_for(entity) == state:
+            owner.manager.set_status(
+                entity, "waiting_for_target", "command_already_pending"
+            )
+            return MovementResult(
+                entity, state, MovementOutcome.SKIPPED, "command_already_pending"
+            )
         current = owner._get_current_position(entity)
+        if current is not None and not isfinite(float(current)):
+            current = None
+        if owner.is_window_open:
+            action = owner.window_open_action
+            if action in {"pause", "return_after_close"} or (
+                action == "block_closing_only"
+                and current is not None
+                and state < current
+            ):
+                owner.manager.set_status(entity, "blocked", "window_open")
+                return MovementResult(
+                    entity, state, MovementOutcome.BLOCKED, "window_open"
+                )
         if current is not None and position_requires_move(
             current,
             state,
@@ -211,6 +287,33 @@ class CoverMovementExecutor:
         self.wait_for_target[entity] = True
         self.target_call[entity] = state
         self.last_command_at[entity] = dt.datetime.now(dt.UTC)
+        decision = getattr(self.context, "last_decision", None)
+        climate = getattr(self.context, "last_climate_data", None)
+        self._command_contexts[entity] = deepcopy(
+            {
+                "decision": decision.as_dict()
+                if decision is not None
+                else {"code": self.context._decision_code()},
+                "decision_trace": getattr(self.context, "last_decision_trace", []),
+                "refresh_generation": getattr(
+                    self.context, "_active_refresh_generation", None
+                ),
+                "refresh_triggers": sorted(
+                    getattr(self.context, "_active_refresh_triggers", [])
+                ),
+                "current_position": self.context._get_current_position(entity),
+                "final_target": state,
+                "position_bias": getattr(
+                    getattr(self.context, "learner", None), "position_biases", {}
+                ).get(entity, 0),
+                "inside_temperature": climate.inside_temperature if climate else None,
+                "outside_temperature": climate.outside_temperature if climate else None,
+                "irradiance": climate.irradiance_value if climate else None,
+                "wind_speed_kmh": climate.current_wind_speed if climate else None,
+                "rain_value": climate.rain_value if climate else None,
+                "command_generation": generation,
+            }
+        )
         self.context.logger.debug("Run %s with data %s", service, service_data)
         return generation
 
@@ -230,6 +333,7 @@ class CoverMovementExecutor:
             service,
             service_data,
             dry_run=True,
+            command_context=self._command_contexts[entity] | {"kind": "dry_run"},
         )
         self.context.manager.set_status(entity, "dry_run", f"would_set_{state}")
         self.update_metadata(
@@ -249,7 +353,7 @@ class CoverMovementExecutor:
 
     def _cancel_previous_verification(self, entity: str) -> None:
         """Anuluj retry zastąpione nowszym poleceniem."""
-        task = self.verify_tasks.get(entity)
+        task = self.verify_tasks.pop(entity, None)
         if task is None:
             return
         task.cancel()
@@ -291,7 +395,12 @@ class CoverMovementExecutor:
                 "service_call_failed",
                 generation,
             )
-        self.context.manager.record_move(entity, service, service_data)
+        self.context.manager.record_move(
+            entity,
+            service,
+            service_data,
+            command_context=self._command_contexts[entity] | {"kind": "initial"},
+        )
         self.context.manager.set_status(entity, "waiting_for_target", f"target_{state}")
         return None
 
@@ -337,12 +446,8 @@ class CoverMovementExecutor:
         )
 
     def _verification_wait_time(self) -> int:
-        """Zwróć opóźnienie uwzględniające oba cooldowny."""
-        return max(
-            45,
-            int(float(self.context.global_cooldown) * 60) + 1,
-            int(float(self.context.time_threshold) * 60) + 1,
-        )
+        """Oddziel czas pracy napędu od limitów częstotliwości poleceń."""
+        return 45
 
     def _verification_metadata(
         self,
@@ -387,38 +492,44 @@ class CoverMovementExecutor:
     ) -> None:
         """Sprawdź osiągnięcie celu i ponów aktualne polecenie."""
         try:
-            for attempt in range(1, max_retries + 1):
+            for attempt in range(1, max_retries + 2):
                 await self._wait_before_verification(
                     entity,
                     generation,
                     attempt,
                     wait_time,
                 )
-                outcome = self._verification_stop_reason(
-                    entity,
-                    target_state,
-                    generation,
-                    enforce_current_target,
-                )
-                if outcome is not None:
-                    self._finish_verification(entity, generation, outcome)
-                    return
-                if not await self._send_retry(
-                    entity,
-                    service,
-                    service_data,
-                    generation,
-                    attempt,
-                ):
-                    return
-            self._finish_verification(entity, generation, "target_not_reached")
+                async with self._locks.setdefault(entity, asyncio.Lock()):
+                    outcome = self._verification_stop_reason(
+                        entity,
+                        target_state,
+                        generation,
+                        enforce_current_target,
+                    )
+                    if outcome is not None:
+                        self._finish_verification(entity, generation, outcome)
+                        return
+                    if attempt > max_retries:
+                        self._finish_verification(
+                            entity, generation, "target_not_reached"
+                        )
+                        return
+                    if not await self._send_retry(
+                        entity,
+                        service,
+                        service_data,
+                        generation,
+                        attempt,
+                    ):
+                        return
         except asyncio.CancelledError:
-            self.update_metadata(
-                entity,
-                expected_generation=generation,
-                state="cancelled",
-                outcome="task_cancelled",
-            )
+            if self.verify_tasks.get(entity) is asyncio.current_task():
+                self.update_metadata(
+                    entity,
+                    expected_generation=generation,
+                    state="cancelled",
+                    outcome="task_cancelled",
+                )
             raise
         finally:
             if self.verify_tasks.get(entity) is asyncio.current_task():
@@ -482,6 +593,12 @@ class CoverMovementExecutor:
         owner = self.context
         if owner._decision_code() in EMERGENCY_DECISION_CODES:
             return None
+        history = getattr(owner.manager, "movement_history", {}).get(entity, [])
+        if history and dt.datetime.now(dt.UTC) - max(history) < dt.timedelta(
+            minutes=float(owner.time_threshold)
+        ):
+            owner.manager.set_status(entity, "blocked", "time_delta_not_passed")
+            return "time_delta_not_passed"
         if owner.manager.can_move(
             entity,
             owner.global_cooldown,
@@ -516,7 +633,13 @@ class CoverMovementExecutor:
                 error=str(err),
             )
             return False
-        owner.manager.record_move(entity, service, service_data)
+        owner.manager.record_move(
+            entity,
+            service,
+            service_data,
+            command_context=self._command_contexts.get(entity, {})
+            | {"kind": "retry", "attempt": attempt},
+        )
         self.last_command_at[entity] = dt.datetime.now(dt.UTC)
         self.update_metadata(
             entity,
@@ -533,6 +656,8 @@ class CoverMovementExecutor:
         outcome: str,
     ) -> None:
         """Zamknij oczekiwanie i zachowaj ostateczny wynik."""
+        if self.command_generation.get(entity, 0) != generation:
+            return
         self.wait_for_target[entity] = False
         if outcome == "target_not_reached":
             self.context.manager.set_status(entity, "blocked", outcome)
@@ -559,10 +684,13 @@ class CoverMovementExecutor:
             or owner.manager.is_cover_manual(entity)
         ):
             return True
+        decision = getattr(owner, "last_decision", None)
+        current_target = (
+            decision.target_position if decision is not None else owner.state
+        )
         if (
-            enforce_current_target
-            and owner._target_for_entity(entity, owner.state) != target_state
-        ):
+            enforce_current_target or decision is not None
+        ) and owner._target_for_entity(entity, current_target) != target_state:
             return True
         if owner.is_window_open:
             current = owner._get_current_position(entity)
@@ -570,7 +698,9 @@ class CoverMovementExecutor:
             if action in {"pause", "return_after_close"}:
                 return True
             if action == "move_to_position":
-                return target_state != int(owner.window_open_position)
+                return target_state != owner._target_for_entity(
+                    entity, int(owner.window_open_position)
+                )
             if (
                 action == "block_closing_only"
                 and current is not None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
+from math import isfinite
 from typing import Any
 
 import numpy as np
@@ -23,7 +24,8 @@ from .geometry import NormalCoverState
 def _as_float(value: Any, default: float | None = None) -> float | None:
     """Zamień wartość snapshota na liczbę."""
     with contextlib.suppress(TypeError, ValueError):
-        return float(value)
+        result = float(value)
+        return result if isfinite(result) else default
     return default
 
 
@@ -173,6 +175,7 @@ class ClimateCoverData:
     weather_entity: str | None = None
     rain_entity: str | None = None
     wind_entity: str | None = None
+    night_purge_previous_active: bool = False
     inside_temperature_entity: str | None = None
     outside_temperature_entity: str | None = None
 
@@ -337,19 +340,24 @@ class ClimateCoverData:
         return start, comfort
 
     @property
+    def cooling_advantage(self) -> bool:
+        """Sprawdź, czy chłód zewnętrzny zwalnia ochronę przed przegrzaniem."""
+        current = self.get_current_temperature
+        return bool(
+            current is not None
+            and self.outside_temperature is not None
+            and self.outside_temperature
+            <= current - self.thermal_hold_release_delta
+        )
+
+    @property
     def thermal_stress(self) -> float:
         """Oblicz stres termiczny w przedziale od 0 do 1."""
         current = self.get_current_temperature
         if self.temp_high is None or current is None:
             return 0.0
         radiation = self._radiation_wm2()
-        threshold = self._radiation_threshold()
-        if (
-            self.outside_temperature is not None
-            and self.outside_temperature < current
-            and threshold is not None
-            and radiation <= threshold
-        ):
+        if self.cooling_advantage:
             return 0.0
         predicted = self._predicted_temperature(radiation)
         effective = max(current, predicted)
@@ -462,6 +470,11 @@ class ClimateCoverState(NormalCoverState):
                 return 100
             self.cover.state_reason = "Brak silnego słońca: pozycja domyślna."
             return int(self.cover.default)
+        if self.climate_data.cooling_advantage:
+            self.cover.state_reason = (
+                "Chłodne powietrze zewnętrzne: pozycja domyślna."
+            )
+            return int(self.cover.default)
         if summer and self.climate_data.transparent_blind:
             self.cover.state_reason = "Tryb letni: pełna blokada transparentnej rolety."
             return 0
@@ -547,9 +560,12 @@ class ClimateCoverState(NormalCoverState):
             or data.temp_low is None
         ):
             return False
+        # Rozdziel progi startu i zatrzymania, aby szum czujników nie budził domowników.
+        inside_margin = 0.0 if data.night_purge_previous_active else 0.5
+        cooling_margin = 0.2 if data.night_purge_previous_active else 1.0
         return (
-            data.inside_temperature > data.temp_low
-            and data.outside_temperature < data.inside_temperature
+            data.inside_temperature > data.temp_low + inside_margin
+            and data.outside_temperature < data.inside_temperature - cooling_margin
         )
 
     def _dawn_active(self, night_purge: bool) -> bool:
@@ -575,6 +591,7 @@ class ClimateCoverState(NormalCoverState):
             and data.dawn_start_month <= data.now.month <= data.dawn_end_month
             and self.cover.direct_sun_valid
             and not data.is_raining
+            and not data.cooling_advantage
         )
         source = "weather"
         value = data.weather_state
@@ -585,16 +602,26 @@ class ClimateCoverState(NormalCoverState):
             value = data.irradiance_value
             threshold = data.irradiance_threshold_on or data.irradiance_threshold
             signal = numeric_value_above_threshold(value, threshold)
+            if value is not None and data.irradiance_low_light_state is not None:
+                signal = not data.irradiance_low_light_state
         elif data.use_lux and data.lux_entity:
             source = "lux"
             value = data.lux_value
             threshold = data.lux_threshold_on or data.lux_threshold
             signal = numeric_value_above_threshold(value, threshold)
+            if value is not None and data.lux_low_light_state is not None:
+                signal = not data.lux_low_light_state
         return bool(enabled and signal), {
             "source": source,
             "sensor_value": value,
             "threshold": threshold,
             "sensor_available": value is not None,
+            "hysteresis_low_light_state": (
+                data.irradiance_low_light_state
+                if source == "irradiance"
+                else data.lux_low_light_state if source == "lux" else None
+            ),
+            "cooling_advantage": data.cooling_advantage,
         }
 
     def _thermal_hold_active(self) -> bool:
@@ -649,6 +676,12 @@ class ClimateCoverState(NormalCoverState):
             data.purge_pos,
             f"Nocne przewietrzanie: pozycja {data.purge_pos}%.",
             end_time=data.night_purge_end_time,
+            previous_active=data.night_purge_previous_active,
+            inside_temperature=data.inside_temperature,
+            outside_temperature=data.outside_temperature,
+            start_inside_margin=0.5,
+            start_cooling_delta=1.0,
+            stop_cooling_delta=0.2,
         )
 
     def _evaluate_sun_rules(self, night_purge: bool) -> None:

@@ -339,6 +339,39 @@ class ClimateAndTemperatureStabilityTests(unittest.TestCase):
 
         self.assertEqual(0.0, data.thermal_stress)
 
+    def test_cooling_advantage_releases_thermal_stress_despite_direct_sun(self) -> None:
+        """Chłodne powietrze ma zwolnić zwykłą ochronę także przy słońcu."""
+        data = climate_data(
+            temp_high=22.0,
+            inside_temperature_value=21.57,
+            outside_temperature_value=12.0,
+            forecast_temperature=12.0,
+            irradiance_value=338.21,
+            irradiance_low_light_state=False,
+            strict_sun_block_toggle=False,
+        )
+
+        self.assertEqual(0.0, data.thermal_stress)
+
+    def test_cooling_advantage_releases_strict_sun_to_default_position(self) -> None:
+        """Chłodne powietrze ma odblokować też ścisłą blokadę słońca."""
+        cover = FakeCover(default=100)
+        cover.base_state = 0
+        data = climate_data(
+            temp_high=22.0,
+            inside_temperature_value=21.51,
+            outside_temperature_value=13.3,
+            forecast_temperature=13.3,
+            irradiance_value=373.97,
+            irradiance_low_light_state=False,
+        )
+
+        result = climate.ClimateCoverState(cover, data).get_decision()
+
+        self.assertEqual("auto", result.code)
+        self.assertEqual(100, result.target_position)
+        self.assertEqual(0.0, data.thermal_stress)
+
     def test_export_conditions_open_present_room_to_default_position(self) -> None:
         """Prognoza upału nie nadpisuje aktualnego braku promieniowania."""
         cover = FakeCover(default=100)

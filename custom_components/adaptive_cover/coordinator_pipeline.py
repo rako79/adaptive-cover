@@ -52,7 +52,8 @@ class CoordinatorPipelineMixin:
     async def async_run_update_pipeline(self) -> AdaptiveCoverData:
         """Wykonaj pełny przebieg obliczeń, wykonania i publikacji."""
         cycle = await self._prepare_update_cycle()
-        await self._sync_end_timer(cycle)
+        if not self._diagnostic_refresh:
+            await self._sync_end_timer(cycle)
         self._apply_scheduled_close_decision(cycle)
         await self._execute_pending_events(cycle)
         cycle.start, cycle.end = await self._solar_window(cycle)
@@ -67,7 +68,8 @@ class CoordinatorPipelineMixin:
         self._update_options(options)
         cover = self.get_blind_data(options=options)
         self.resolve_schedule(options, cover)
-        self._schedule_night_purge_close()
+        if not self._diagnostic_refresh:
+            self._schedule_night_purge_close()
         self._update_manager_and_covers()
         await self._calculate_cover_state(options, cover)
         state = self._finalize_decision(cover)
@@ -96,13 +98,35 @@ class CoordinatorPipelineMixin:
 
     def _base_decision(self, cover: Any, state: int) -> DecisionResult:
         """Powiąż przekształconą pozycję z wybraną regułą domenową."""
-        calculated = self._calculated_decision
-        code = calculated.code if calculated is not None else "auto"
+        calculated = self._calculated_decision if self._switch_mode else None
+        code = (
+            calculated.code
+            if calculated is not None
+            else (
+                "night_mode"
+                if cover.sunset_valid
+                else ("auto" if cover.direct_sun_valid else "sun_shadow")
+            )
+        )
         reason = (
             calculated.reason
             if calculated is not None
-            else getattr(cover, "state_reason", "Działanie automatyczne.")
+            else {
+                "night_mode": "Tryb nocny: pozycja nocna.",
+                "sun_shadow": "Słońce poza zasięgiem okna: pozycja domyślna.",
+                "auto": "Działanie automatyczne według geometrii słońca.",
+            }[code]
         )
+        if calculated is None:
+            self.last_decision_trace = [
+                {
+                    "code": code,
+                    "active": True,
+                    "selected": True,
+                    "priority": decision_priority(code),
+                    "outcome": "selected",
+                }
+            ]
         inputs = dict(calculated.inputs) if calculated is not None else {}
         inputs |= {
             "sun_azimuth": cover.sol_azi,
@@ -179,10 +203,19 @@ class CoordinatorPipelineMixin:
             if self._scheduled_time is not None:
                 self._async_cancel_update_listener()
             return
+        schedule = self._resolved_schedule
+        if (
+            schedule is not None
+            and schedule.start.value is not None
+            and schedule.end.value is not None
+            and schedule.start.value > schedule.end.value
+            and dt_util.now() >= schedule.start.value
+        ):
+            end_time = dt_util.as_utc(dt_util.as_local(end_time) + dt.timedelta(days=1))
         if end_time == self._scheduled_time:
             return
         if end_time > dt_util.utcnow():
-            await self.async_timed_end_time()
+            await self.async_timed_end_time(end_time)
             return
         self._async_cancel_update_listener()
         self._scheduled_time = end_time
@@ -268,8 +301,13 @@ class CoordinatorPipelineMixin:
         """Obsłuż partię zdarzeń w ustalonej kolejności."""
         if not self._runtime_initialized or self._diagnostic_refresh:
             return
+        self._active_refresh_triggers = frozenset(cycle.triggers)
         for cover_event in cycle.cover_events:
             await self.async_handle_cover_state_change(cycle.state, cover_event)
+        for entity in self.entities:
+            self.movement.reconcile(
+                entity, self._target_for_entity(entity, cycle.state)
+            )
         timed = {
             RefreshTrigger.TIMED_END,
             RefreshTrigger.NIGHT_PURGE_DEADLINE,
@@ -278,7 +316,7 @@ class CoordinatorPipelineMixin:
             await self.async_handle_timed_refresh(cycle.state, cycle.options)
         elif RefreshTrigger.FIRST_REFRESH in cycle.triggers:
             await self.async_handle_first_refresh(cycle.state, cycle.options)
-        elif RefreshTrigger.ENTITY_STATE in cycle.triggers:
+        elif cycle.triggers & {RefreshTrigger.ENTITY_STATE, RefreshTrigger.PERIODIC}:
             await self.async_handle_state_change(cycle.state, cycle.options)
         self._last_refresh_triggers = frozenset(cycle.triggers)
         self._active_refresh_triggers = frozenset()
@@ -308,6 +346,8 @@ class CoordinatorPipelineMixin:
         self.decision_history.append(
             {
                 "timestamp": dt.datetime.now(dt.UTC),
+                "refresh_generation": self._active_refresh_generation,
+                "refresh_triggers": sorted(item.value for item in cycle.triggers),
                 "decision": self.last_decision.as_dict(),
                 "decision_trace": list(self.last_decision_trace),
                 "final_targets": targets,

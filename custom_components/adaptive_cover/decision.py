@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, time, timedelta
+from math import isfinite
 from typing import Any
 
 COLD_PROTECTION_HYSTERESIS = 1.0
@@ -245,7 +246,8 @@ def numeric_value_above_threshold(
     if value is None or threshold is None:
         return False
     try:
-        return float(value) > float(threshold)
+        numeric = float(value)
+        return isfinite(numeric) and numeric > float(threshold)
     except (TypeError, ValueError):
         return False
 

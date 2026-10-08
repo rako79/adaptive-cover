@@ -175,6 +175,12 @@ się przez pięć minut. Krótszy skok jest odrzucany przed oceną ochrony zimna
 nocnego przewietrzania. Diagnostyka pokazuje wartość surową, zaakceptowaną,
 kandydata oraz liczbę odrzuconych odczytów.
 
+Start przewietrzania wymaga temperatury pokojowej powyżej `temp_low + 0,5°C`
+i powietrza zewnętrznego chłodniejszego o ponad `1°C`. Rozpoczęte przewietrzanie
+trwa do spadku temperatury pokojowej do `temp_low` lub różnicy temperatur
+do `0,2°C`. Kontaktron nie jest wymagany do uruchomienia tej funkcji;
+skonfigurowane polityki otwartego okna nadal obowiązują.
+
 ### Podtrzymanie ochrony termicznej
 
 `thermal_hold_after_sun` działa tylko wtedy, gdy konkretne okno było wcześniej
@@ -273,6 +279,14 @@ Polecenia mają numer generacji. Opóźnione retry sprawdza ponownie aktualny ce
 stan sterowania, ręczne przejęcie, politykę okna i limity. Stare zadanie nie może
 wykonać ruchu po zmianie warunków. Zadania retry działają w tle, nie blokują
 startu Home Assistant i są anulowane podczas wyładowania integracji.
+
+Warunki są ponownie oceniane co minutę, również bez zmian czujników. Wygaśnięcie
+blokady lub ręcznego przejęcia pozwala wznowić automatykę z aktualnym celem.
+Weryfikacja napędu następuje po `45 s` lub od razu po potwierdzającym zdarzeniu;
+samo ponowienie nadal respektuje limity. Identyczne polecenia podczas oczekiwania
+na cel są łączone. Historia poleceń zapisuje przyczynę, wyzwalacz, odczyty,
+pozycję początkową, cel i rodzaj polecenia (`initial`, `retry`, `dry_run`).
+Eksport diagnostyki nie wysyła poleceń ani nie przejmuje oczekujących zdarzeń.
 
 ## Najważniejsze wartości domyślne
 
@@ -577,6 +591,12 @@ Shorter spikes are rejected before cold protection and night purge are
 evaluated. Diagnostics expose the raw and accepted values, the pending
 candidate and the rejected-reading count.
 
+Starting purge requires a room temperature above `temp_low + 0.5°C` and outdoor
+air cooler by more than `1°C`. Once started, purge continues until the room
+reaches `temp_low` or the temperature difference falls to `0.2°C`.
+A contact sensor is not required to start purge; configured open-window
+policies still apply.
+
 ### Thermal Hold
 
 `thermal_hold_after_sun` can activate only after actual direct sun on that
@@ -668,6 +688,14 @@ target, automation state, manual override, window policy and movement limits.
 Stale tasks cannot move a cover after conditions change. Retry tasks are
 background tasks, do not delay Home Assistant startup and are cancelled on
 integration unload.
+
+Conditions are reevaluated every minute, even without sensor changes. After a
+movement block or manual override expires, automation resumes with the current
+target. Motor verification runs after `45 s`, or immediately on a confirming
+event; retries still respect movement limits. Identical pending commands are
+coalesced. Command history includes the decision, trigger, readings, initial
+position, target and command kind (`initial`, `retry`, `dry_run`). Diagnostics
+export neither sends commands nor consumes pending execution events.
 
 ## Important defaults
 

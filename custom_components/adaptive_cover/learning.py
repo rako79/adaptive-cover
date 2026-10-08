@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from math import isfinite
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -14,6 +15,17 @@ LEARNING_GUARD_VERSION = 4
 LEARNING_GUARD_RESET_REASON = "temperature_source_guard_upgrade"
 POSITION_BIAS_LIMIT = 25.0
 TEMPERATURE_OFFSET_LIMIT = 3.0
+
+
+def _bounded_offsets(values: dict, limit: float) -> dict[str, float]:
+    """Odrzuć uszkodzone liczby i ogranicz odczytane preferencje."""
+    result = {}
+    for key, value in values.items():
+        numeric = float(value)
+        if not isfinite(numeric):
+            raise ValueError("Niepoprawna liczba w danych uczenia")
+        result[str(key)] = max(-limit, min(limit, numeric))
+    return result
 
 
 class BehavioralLearner:
@@ -51,14 +63,12 @@ class BehavioralLearner:
             self.logger.error("Unable to load behavioral learning: %s", err)
             return
         try:
-            stored_biases = {
-                str(key): float(value)
-                for key, value in data.get("position_biases", {}).items()
-            }
-            stored_offsets = {
-                str(key): float(value)
-                for key, value in data.get("temperature_offsets", {}).items()
-            }
+            stored_biases = _bounded_offsets(
+                data.get("position_biases", {}), POSITION_BIAS_LIMIT
+            )
+            stored_offsets = _bounded_offsets(
+                data.get("temperature_offsets", {}), TEMPERATURE_OFFSET_LIMIT
+            )
             stored_counts = {
                 str(key): int(value)
                 for key, value in data.get("override_counts", {}).items()
@@ -146,7 +156,8 @@ class BehavioralLearner:
             return
 
         old_bias = self.position_biases.get(entity_id, 0.0)
-        learned_bias = (1 - self.alpha) * old_bias + self.alpha * position_delta
+        # our_state zawiera już dotychczasowy bias; uczymy pozostały błąd.
+        learned_bias = old_bias + self.alpha * position_delta
         self.position_biases[entity_id] = max(
             -POSITION_BIAS_LIMIT,
             min(POSITION_BIAS_LIMIT, learned_bias),

@@ -131,6 +131,29 @@ class BehavioralLearnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(50, learner.get_adjusted_position("cover.room", 50))
         self.assertEqual({}, learner._store.delayed_payload["position_biases"])
 
+    async def test_learning_corrects_remaining_error_without_halving_preference(
+        self,
+    ) -> None:
+        """Kolejne korekty do 60% z bazy 50% zbiegają do biasu 10%, nie 5%."""
+        learner = learning.BehavioralLearner(object(), Mock(), "entry")
+        for _ in range(40):
+            target = learner.get_adjusted_position("cover.room", 50)
+            learner.register_override("cover.room", 23, target, 60, False)
+        self.assertGreaterEqual(learner.get_adjusted_position("cover.room", 50), 59)
+
+    async def test_invalid_stored_bias_does_not_break_position_calculation(
+        self,
+    ) -> None:
+        """Uszkodzone dane uczenia są zgłaszane i nie trafiają do obliczeń pozycji."""
+        learner = learning.BehavioralLearner(object(), Mock(), "entry")
+        learner._store.data = {
+            "learning_guard_version": learning.LEARNING_GUARD_VERSION,
+            "position_biases": {"cover.room": float("nan")},
+        }
+        await learner.async_load()
+        self.assertIsNotNone(learner.last_load_error)
+        self.assertEqual(100, learner.get_adjusted_position("cover.room", 100))
+
     async def test_direct_sun_is_persisted_without_excessive_writes(self) -> None:
         """Retain thermal context and throttle repeated storage updates."""
         learner = learning.BehavioralLearner(object(), Mock(), "entry")

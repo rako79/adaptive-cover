@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from collections import deque
 import datetime as dt
 from time import perf_counter
@@ -63,6 +65,7 @@ class AdaptiveDataUpdateCoordinator(
             LOGGER,
             config_entry=config_entry,
             name=DOMAIN,
+            update_interval=dt.timedelta(minutes=1),
         )
         options = normalize_options(config_entry.options)
         self._initialize_configuration(options)
@@ -101,6 +104,7 @@ class AdaptiveDataUpdateCoordinator(
         self._last_direct_sun_at: dt.datetime | None = None
         self._direct_sun_was_active = False
         self._cold_protection_active = False
+        self._night_purge_active = False
         self._outside_temperature_filter = TemperatureStabilityFilter()
         self._outside_temperature_raw: float | None = None
         self._outside_temperature_reference: float | None = None
@@ -135,6 +139,7 @@ class AdaptiveDataUpdateCoordinator(
         self._runtime_initialized = False
         self._runtime_initialization_task = None
         self._diagnostic_refresh = False
+        self._update_lock = asyncio.Lock()
 
     def _initialize_schedule(self) -> None:
         """Utwórz jeden resolver i kontroler wszystkich terminów."""
@@ -191,4 +196,5 @@ class AdaptiveDataUpdateCoordinator(
 
     async def _async_calculate_update_data(self) -> AdaptiveCoverData:
         """Deleguj przebieg do etapowego pipeline."""
-        return await self.async_run_update_pipeline()
+        async with self._update_lock:
+            return await self.async_run_update_pipeline()

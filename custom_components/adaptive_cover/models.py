@@ -12,6 +12,7 @@ class RefreshTrigger(StrEnum):
 
     ENTITY_STATE = "entity_state"
     COVER_STATE = "cover_state"
+    PERIODIC = "periodic"
     FIRST_REFRESH = "first_refresh"
     TIMED_END = "timed_end"
     NIGHT_PURGE_DEADLINE = "night_purge_deadline"

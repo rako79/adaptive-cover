@@ -28,7 +28,7 @@ def create_entry(*, version: int = 2) -> MockConfigEntry:
     """Utwórz kompletny wpis jednej rolety pionowej."""
     options = normalize_options(
         {
-            "entities": ["cover.test"],
+            "group": ["cover.test"],
             "climate_mode": False,
             "control_toggle": False,
             "window_height": 2.1,
@@ -52,6 +52,17 @@ def set_required_states(hass: HomeAssistant) -> None:
         "open",
         {"current_position": 60},
     )
+
+    async def move_cover(call):
+        """Zasymuluj raport napędu po faktycznym wywołaniu usługi HA."""
+        target = call.data["position"]
+        hass.states.async_set(
+            "cover.test",
+            "closed" if target == 0 else "open",
+            {"current_position": target},
+        )
+
+    hass.services.async_register("cover", "set_cover_position", move_cover)
 
 
 def create_pipeline(*, decision_code: str = "auto") -> CoordinatorPipelineMixin:
@@ -162,6 +173,8 @@ async def test_setup_reload_and_unload_leave_no_tasks(hass: HomeAssistant) -> No
         assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
         coordinator = hass.data[DOMAIN][entry.entry_id]
+        assert coordinator.update_interval == dt.timedelta(minutes=1)
+        assert coordinator.entities == ["cover.test"]
         assert previous._unloading
         assert previous.schedule_controller.target("config_change") is None
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from math import isfinite
+
 import datetime as dt
 from typing import Any
 
@@ -62,13 +65,15 @@ class AdaptiveCoverManager:
         cooldown_minutes: int | float | None,
         max_per_hour: int | None,
         max_per_day: int | None,
+        *,
+        bypass_cooldown: bool = False,
     ) -> bool:
         """Sprawdź cooldown i limity ruchów jednej rolety."""
         now = dt.datetime.now(dt.UTC)
         self._prune_history(entity_id)
         history = self.movement_history.setdefault(entity_id, [])
 
-        if cooldown_minutes and history:
+        if cooldown_minutes and history and not bypass_cooldown:
             cooldown = dt.timedelta(minutes=float(cooldown_minutes))
             if now - history[-1] < cooldown:
                 self.set_status(entity_id, "blocked", "cooldown")
@@ -94,6 +99,7 @@ class AdaptiveCoverManager:
         service_data: dict,
         *,
         dry_run: bool = False,
+        command_context: dict | None = None,
     ) -> None:
         """Zapisz polecenie na potrzeby limitów i diagnostyki."""
         now = dt.datetime.now(dt.UTC)
@@ -105,6 +111,7 @@ class AdaptiveCoverManager:
             "data": dict(service_data),
             "dry_run": dry_run,
             "time": now.isoformat(),
+            "context": deepcopy(command_context or {}),
         }
         history = self.command_history.setdefault(entity_id, [])
         history.append(
@@ -113,6 +120,7 @@ class AdaptiveCoverManager:
                 "data": dict(service_data),
                 "dry_run": dry_run,
                 "requested_at": now,
+                "context": deepcopy(command_context or {}),
             }
         )
         del history[:-50]
@@ -170,11 +178,22 @@ class AdaptiveCoverManager:
         ):
             return
 
+        old_state = event.old_state
+        if new_state.state in {"opening", "closing", "unknown", "unavailable"}:
+            return
+        if old_state is None or old_state.state in {"unknown", "unavailable"}:
+            return
+        if old_state.attributes.get(attribute) == new_position:
+            # Zmiana atrybutu lub ponowny raport nie jest ręcznym ruchem.
+            return
+
         if new_position is None or our_state is None:
             self.logger.debug(
                 "No usable position in state change for %s",
                 event.entity_id,
             )
+            return
+        if not isfinite(float(new_position)) or not 0 <= float(new_position) <= 100:
             return
 
         if new_position == our_state:
