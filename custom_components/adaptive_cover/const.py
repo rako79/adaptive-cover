@@ -3,7 +3,7 @@
 import logging
 
 DOMAIN = "adaptive_cover"
-INTEGRATION_VERSION = "1.6.1"
+INTEGRATION_VERSION = "1.6.2"
 DIAGNOSTICS_SCHEMA_VERSION = 4
 SETTINGS_SCHEMA_VERSION = 4
 LOGGER = logging.getLogger(__package__)

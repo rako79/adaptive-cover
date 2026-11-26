@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.6.1] - 2026-11-26
+## [1.6.2] - 2026-11-26
 
 ### Dodane
 - [Dodane] Ochrona przed wiatrem może wymagać od 1 do 5 kolejnych raportów dedykowanego czujnika powyżej progu. Diagnostyka pokazuje liczbę potwierdzeń, a domyślna wartość 1 zachowuje natychmiastową reakcję.
