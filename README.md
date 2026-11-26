@@ -75,6 +75,13 @@ and available in diagnostics schema v4.
 Po aktualizacji plików zawsze wykonaj pełny restart Home Assistant. Samo
 odświeżenie przeglądarki nie przeładowuje kodu Pythona.
 
+### Aktualizacja
+
+Przed aktualizacją przeczytaj [CHANGELOG.md](CHANGELOG.md). Ustawienia, wyuczone
+preferencje i trwające ręczne przejęcia zostają zachowane. Nowe opcje mają
+wartości domyślne, które nie zmieniają dotychczasowego działania. Przed większą
+zmianą warto wyeksportować ustawienia usługą `adaptive_cover.export_config`.
+
 ## Konfiguracja
 
 Każdy wpis konfiguracji reprezentuje jedną grupę osłon o wspólnej geometrii i
@@ -88,6 +95,17 @@ Duplikaty są odrzucane podczas konfiguracji, importu i uruchamiania.
 | Roleta pionowa | Roleta poruszająca się góra/dół | wysokość okna, wymagany obszar cienia, głębokość okna i parapetu, korekta wysokości zacienianego obszaru |
 | Markiza pozioma | Markiza wysuwana nad oknem lub tarasem | długość markizy i kąt montażu |
 | Żaluzja z uchyłem | Lamele sterowane kątem | rozstaw, głębokość i zakres obrotu lameli |
+
+### Korekta wysokości zacienianego obszaru
+
+`height_adjustment_shaded_area` (od `-3` do `3` m, tylko rolety pionowe, w obu
+trybach) przesuwa obliczoną wysokość cienia. Wartość dodatnia (np. biurko nad
+parapetem) zostawia roletę bardziej otwartą, ujemna bardziej ją zasłania.
+
+Jeśli roleta stale jest za nisko lub za wysoko, popraw najpierw
+`distance_shaded_area` (odległość chronionego miejsca od okna) albo tę korektę,
+a potem zresetuj uczenie. Duża wyuczona korekta zwykle oznacza niedopasowaną
+geometrię.
 
 ### Geometria słońca
 
@@ -191,6 +209,19 @@ rzeczywiście wystawione na bezpośrednie słońce. Ochrona zostaje zwolniona:
   `thermal_hold_release_delta`,
 - gdy nie występuje stres termiczny.
 
+### Pozycja domyślna latem i zimą
+
+Gdy słońce nie świeci w okno, tryb klimatyczny może użyć osobnej pozycji
+zamiast zwykłej pozycji domyślnej:
+
+- `default_percentage_summer`, gdy pokój jest cieplejszy niż `temp_high` albo
+  prognoza zapowiada upał, np. żeby przymknąć roletę przed nadejściem słońca,
+- `default_percentage_winter`, gdy pokój jest chłodniejszy niż `temp_low`.
+
+Puste pole oznacza zwykłą pozycję domyślną. Thermal Hold i pozycja nocna mają
+pierwszeństwo. Uzasadnienie decyzji pokazuje dopisek „pozycja letnia” lub
+„pozycja zimowa”.
+
 ### Deszcz i wiatr
 
 - Fizyczny czujnik deszczu ma pierwszeństwo przed opisem prognozy pogody.
@@ -203,6 +234,8 @@ rzeczywiście wystawione na bezpośrednie słońce. Ochrona zostaje zwolniona:
   Po restarcie lub przeładowaniu licznik startuje od nowa, ale zwykłe otwieranie
   jest zablokowane, dopóki czujnik nie pokaże wartości na progu lub poniżej
   (wystarczy jego bieżący stan, jeśli już jest spokojny).
+- Bez dedykowanego czujnika wiatr jest odczytywany z encji pogody. Jej
+  chwilowa niedostępność nie zwalnia ochrony: obowiązuje ostatni znany odczyt.
 - Można ustawić osobne pozycje awaryjne dla deszczu i wiatru.
 - Opcja `rain_night_only` ogranicza reakcję na deszcz do pory nocnej.
 - Deszcz i wiatr omijają harmonogram, ręczne przejęcie, cooldown oraz limity
@@ -225,6 +258,10 @@ Obsługiwane polityki `window_open_action`:
 | `block_closing_only` | pozwala otwierać, ale blokuje dalsze zamykanie |
 | `return_after_close` | wstrzymuje automatykę i wraca do celu po zamknięciu okna |
 
+Kontaktron w stanie `unknown` lub `unavailable` blokuje automatyczny ruch, bo
+okno może być otwarte. Wyjątkiem jest ochrona przed deszczem i wiatrem.
+Blokada zamykania uwzględnia odwrócony kierunek napędu.
+
 ## Ręczne sterowanie
 
 Integracja odróżnia własne polecenia od ruchów użytkownika. Po wykryciu ręcznej
@@ -240,26 +277,9 @@ i czeka maksymalnie 120 sekund na zakończenie ruchu.
 
 Termin przejęcia jest zapisywany jako stała chwila. Wariant „do zachodu słońca”
 nie skraca się podczas kolejnych odświeżeń i po zachodzie wskazuje następny
-zachód.
-
-### Pozycja domyślna latem i zimą
-
-W trybie klimatycznym, gdy słońce nie świeci w okno, można użyć osobnej pozycji:
-
-- `default_percentage_summer`, gdy tryb klimatyczny wykrywa lato (przegrzewanie
-  pokoju lub gorącą prognozę), np. żeby przymknąć roletę przed nadejściem słońca,
-- `default_percentage_winter`, gdy pokój jest poniżej `temp_low`.
-
-Puste pole oznacza zwykłą pozycję domyślną. Thermal Hold i pozycja nocna mają
-pierwszeństwo.
-
-### Korekta wysokości zacienianego obszaru
-
-`height_adjustment_shaded_area` (od `-3` do `3` m, tylko rolety pionowe) przesuwa
-obliczoną wysokość cienia. Wartość dodatnia (np. biurko nad parapetem) zostawia
-roletę bardziej otwartą, ujemna bardziej ją zasłania. Jeśli uczenie stale
-przesuwa roletę w jedną stronę, lepiej poprawić tę wartość albo
-`distance_shaded_area` i zresetować uczenie.
+zachód. Trwające przejęcie jest zapisywane w Home Assistant Store i przetrwa
+restart oraz przeładowanie wpisu, np. po zmianie godziny lub przesunięcia
+zamknięcia z panelu.
 
 ## BehavioralLearner
 
@@ -272,8 +292,9 @@ Store. Po potwierdzonej ręcznej zmianie aktualizuje:
 
 Uczenie działa wyłącznie podczas aktywnego harmonogramu i tylko dla decyzji
 komfortowych przy słońcu w oknie (`auto`, `thermal_hold`). Gdy słońca nie ma w
-oknie (`sun_shadow`), korekta nie jest ani stosowana, ani uczona. Nie może zmienić pozycji bezpieczeństwa wynikających z deszczu,
-wiatru, zimna ani Strict Sun Block.
+oknie (`sun_shadow`), korekta nie jest ani stosowana, ani uczona. Uczenie nie
+może zmienić pozycji bezpieczeństwa wynikających z deszczu, wiatru, zimna ani
+Strict Sun Block.
 Ręczne przesunięcie większe niż `30` punktów procentowych jest traktowane jako
 tymczasowa scena, np. zamknięcie do projekcji, i nie zmienia wyuczonych
 preferencji.
@@ -318,6 +339,12 @@ samo ponowienie nadal respektuje limity. Identyczne polecenia podczas oczekiwani
 na cel są łączone. Historia poleceń zapisuje przyczynę, wyzwalacz, odczyty,
 pozycję początkową, cel i rodzaj polecenia (`initial`, `retry`, `dry_run`).
 Eksport diagnostyki nie wysyła poleceń ani nie przejmuje oczekujących zdarzeń.
+
+Polecenie do rolety ma limit `30 s`, a pobranie prognozy `10 s`. Zawieszona
+integracja jednej rolety nie blokuje pozostałych ani ochrony pogodowej.
+Ponowienie czeka na wygaśnięcie cooldownu i limitu godzinowego bez zużywania
+próby. Dobowy limit kończy ponawianie. Włączenie Dry Run anuluje zaplanowane
+ponowienia.
 
 ## Najważniejsze wartości domyślne
 
@@ -530,6 +557,13 @@ bezpośrednio.
 
 Always perform a full Home Assistant restart after replacing integration files.
 
+### Upgrading
+
+Read [CHANGELOG.md](CHANGELOG.md) before upgrading. Settings, learned
+preferences and active manual overrides are kept. New options default to values
+that keep the previous behavior. Before a larger change, export the settings
+with `adaptive_cover.export_config`.
+
 ## Configuration
 
 Each config entry represents one group of covers using the same geometry and
@@ -540,9 +574,19 @@ Duplicates are rejected during setup, import and runtime loading.
 
 | Type | Use | Main geometry inputs |
 | --- | --- | --- |
-| Vertical cover | Up/down roller shutter | window height, required shaded distance, window depth and sill height |
+| Vertical cover | Up/down roller shutter | window height, required shaded distance, window depth and sill height, shaded area height adjustment |
 | Horizontal awning | Extending awning | awning length and installation angle |
 | Tilt cover | Venetian/slatted blind | slat distance, slat depth and rotation range |
+
+### Shaded area height adjustment
+
+`height_adjustment_shaded_area` (`-3` to `3` m, vertical blinds only, both
+modes) shifts the computed shade height: positive values (e.g. a desk above the
+sill) keep the blind further open, negative values close it more.
+
+If the blind is consistently too low or too high, adjust `distance_shaded_area`
+(distance of the protected area from the window) or this value first, then
+reset learning. A large learned bias usually means the geometry does not match.
 
 ### Solar geometry
 
@@ -594,19 +638,6 @@ rule and candidates overridden by higher priority.
 
 ## Climate functions
 
-### Seasonal default position
-
-While the sun is out of view, climate mode can use `default_percentage_summer`
-when it detects summer (room overheating or a hot forecast) and
-`default_percentage_winter` when the room is below `temp_low`. Empty values keep
-the regular default position. Thermal Hold and the night position take priority.
-
-### Shaded area height adjustment
-
-`height_adjustment_shaded_area` (`-3` to `3` m, vertical blinds only) shifts the
-computed shade height: positive values (e.g. a desk above the sill) keep the
-blind further open, negative values close it more.
-
 ### Low radiation
 
 In climate mode, the current lux or irradiance signal takes precedence over the
@@ -648,6 +679,19 @@ specific window. It is released when its configured duration expires, when
 outdoor air is cooler by at least `thermal_hold_release_delta`, or when thermal
 stress is no longer present.
 
+### Seasonal default position
+
+While the sun is out of view, climate mode can use a separate position instead
+of the regular default:
+
+- `default_percentage_summer` when the room is above `temp_high` or the forecast
+  is hot, e.g. to pre-close the blind before the sun arrives,
+- `default_percentage_winter` when the room is below `temp_low`.
+
+Empty values keep the regular default position. Thermal Hold and the night
+position take priority. The decision reason mentions the summer or winter
+position.
+
 ### Rain and wind
 
 - A physical rain sensor takes precedence over the weather forecast state.
@@ -659,6 +703,8 @@ stress is no longer present.
   report at or below the threshold is required. After startup or reload, the
   count starts over; ordinary opening waits until the sensor shows a value at or
   below the threshold (its current state counts if it is already calm).
+- Without a dedicated sensor, wind is read from the weather entity. If that
+  entity is briefly unavailable, the last known reading still applies.
 - Rain and wind can use separate emergency positions.
 - `rain_night_only` limits rain protection to nighttime.
 - Rain and wind bypass the schedule, manual override, cooldown and movement
@@ -679,6 +725,10 @@ command. The same lifecycle path is used when the integration is reloaded.
 | `block_closing_only` | permits opening but blocks further closing |
 | `return_after_close` | pauses and returns to the current target after closing |
 
+A contact sensor in `unknown` or `unavailable` state blocks automatic movement
+because the window may be open. Rain and wind protection are the exception.
+Closing blocks respect an inverted motor direction.
+
 ## Manual override
 
 The integration distinguishes its own service calls from user movement. A
@@ -692,7 +742,9 @@ physical target instead of a newer automation calculation.
 
 The override deadline is stored as one fixed timestamp. The “until sunset”
 variant does not shrink on each refresh and selects the next sunset when the
-current day's sunset has already passed.
+current day's sunset has already passed. An active override is persisted in
+Home Assistant Store and survives restarts and entry reloads, e.g. after
+changing a time or sunset offset from the dashboard.
 
 ## BehavioralLearner
 
@@ -705,9 +757,9 @@ manual override updates:
 
 Learning is applied only during the active adaptive schedule and only to comfort
 decisions with the sun in the window (`auto`, `thermal_hold`); while the sun is
-out of view (`sun_shadow`) the bias is neither applied nor learned. It cannot alter rain, wind, cold-protection or Strict Sun Block
-targets. A manual move greater than `30` percentage points is treated as a
-temporary scene, for example closing the cover for projection, and does not
+out of view (`sun_shadow`) the bias is neither applied nor learned. It cannot
+alter rain, wind, cold-protection or Strict Sun Block targets. A manual move
+greater than `30` percentage points is treated as a temporary scene, for example closing the cover for projection, and does not
 change learned preferences. **Reset Behavioral Learning** clears all learned
 values for the entry.
 The last direct-sun timestamp is persisted separately across Home Assistant
@@ -751,6 +803,11 @@ event; retries still respect movement limits. Identical pending commands are
 coalesced. Command history includes the decision, trigger, readings, initial
 position, target and command kind (`initial`, `retry`, `dry_run`). Diagnostics
 export neither sends commands nor consumes pending execution events.
+
+Cover service calls time out after `30 s` and forecast requests after `10 s`, so
+one hung cover integration cannot block other covers or weather protection.
+Retries wait for the cooldown and hourly limit without using up an attempt; the
+daily limit ends retrying. Enabling Dry Run cancels scheduled retries.
 
 ## Important defaults
 
