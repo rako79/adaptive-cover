@@ -342,6 +342,29 @@ class ClimateAndTemperatureStabilityTests(unittest.TestCase):
         self.assertEqual("night_mode", result.code)
         self.assertEqual(0, result.target_position)
 
+    def test_seasonal_default_when_sun_is_out_of_view(self) -> None:
+        """Bez słońca w oknie: pozycja letnia przy przegrzaniu, zimowa przy chłodzie."""
+        cases = (
+            ({"inside_temperature_value": 25.0}, {"default_summer": 60}, 60),
+            ({"inside_temperature_value": 18.0}, {"default_winter": 90}, 90),
+            ({"inside_temperature_value": 22.0}, {"default_summer": 60}, 80),
+            ({"inside_temperature_value": 25.0}, {}, 80),
+        )
+        for temperatures, seasonal, expected in cases:
+            with self.subTest(temperatures=temperatures, seasonal=seasonal):
+                cover = FakeCover(valid=False, direct_sun_valid=False, default=80)
+                data = climate_data(
+                    thermal_hold_after_sun=False,
+                    direct_sun_valid=False,
+                    **temperatures,
+                    **seasonal,
+                )
+
+                result = climate.ClimateCoverState(cover, data).get_decision()
+
+                self.assertEqual("sun_shadow", result.code)
+                self.assertEqual(expected, result.target_position)
+
     def test_cooler_outside_and_low_radiation_has_zero_stress(self) -> None:
         """Chłodne powietrze bez silnego słońca nie uzasadnia zamykania."""
         data = climate_data(

@@ -3,7 +3,7 @@
 import logging
 
 DOMAIN = "adaptive_cover"
-INTEGRATION_VERSION = "1.6.2"
+INTEGRATION_VERSION = "1.6.3"
 DIAGNOSTICS_SCHEMA_VERSION = 4
 SETTINGS_SCHEMA_VERSION = 4
 LOGGER = logging.getLogger(__package__)
@@ -18,7 +18,10 @@ CONF_HEIGHT_WIN = "window_height"
 CONF_DISTANCE = "distance_shaded_area"
 CONF_WINDOW_DEPTH = "window_depth"
 CONF_SILL_HEIGHT = "sill_height"
+CONF_SHADED_HEIGHT_DELTA = "height_adjustment_shaded_area"
 CONF_DEFAULT_HEIGHT = "default_percentage"
+CONF_DEFAULT_HEIGHT_SUMMER = "default_percentage_summer"
+CONF_DEFAULT_HEIGHT_WINTER = "default_percentage_winter"
 CONF_FOV_LEFT = "fov_left"
 CONF_FOV_RIGHT = "fov_right"
 CONF_ENTITIES = "group"

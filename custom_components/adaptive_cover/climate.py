@@ -180,6 +180,8 @@ class ClimateCoverData:
     outside_temperature_entity: str | None = None
     wind_confirmation_samples: int | None = None
     wind_confirmation_required: int = 1
+    default_summer: float | None = None
+    default_winter: float | None = None
 
     @property
     def inside_temperature(self) -> float | None:
@@ -729,9 +731,18 @@ class ClimateCoverState(NormalCoverState):
             self.cover.state_reason = "Tryb nocny: po zachodzie słońca."
         elif not self.cover.valid:
             code = "sun_shadow"
-            target = int(self.cover.default)
-            self.cover.state_reason = "Słońce poza zasięgiem okna."
+            target, season = self._seasonal_default()
+            self.cover.state_reason = f"Słońce poza zasięgiem okna{season}."
         return int(target), code, self.cover.state_reason
+
+    def _seasonal_default(self) -> tuple[int, str]:
+        """Pozycja bez słońca w oknie: osobna latem (przegrzanie) i zimą (chłód)."""
+        data = self.climate_data
+        if data.is_summer and data.default_summer is not None:
+            return int(data.default_summer), " (pozycja letnia)"
+        if data.is_winter and data.default_winter is not None:
+            return int(data.default_winter), " (pozycja zimowa)"
+        return int(self.cover.default), ""
 
     def _evaluate_comfort(self) -> None:
         """Utwórz kandydatów komfortu i Thermal Hold."""

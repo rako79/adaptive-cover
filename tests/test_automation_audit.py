@@ -339,11 +339,22 @@ def test_unfinished_or_unavailable_state_does_not_train_learner(state):
 def test_learning_respects_physical_position_limits(bias, expected):
     """Korekta uczenia nie omija limitów zastosowanych przez arbitra."""
     context = AuditCoordinator()
+    context.last_decision = DecisionResult(50, "auto", "Słońce w oknie", 10)
     cover = context.normal_cover_state.cover
     cover.apply_min_position = cover.apply_max_position = True
     cover.min_pos, cover.max_pos = 40, 60
     context.learner.get_adjusted_position = lambda entity, target: target + bias
     assert context._target_for_entity("cover.room", 50) == expected
+
+
+def test_learned_bias_is_not_applied_without_sun_in_window():
+    """Korekta ze słonecznych poprawek nie przymyka rolety, gdy słońca nie ma w oknie."""
+    context = AuditCoordinator()
+    context.learner.get_adjusted_position = lambda entity, target: target - 17
+    context.last_decision = DecisionResult(100, "auto", "Słońce w oknie", 10)
+    assert context._target_for_entity("cover.room", 100) == 83
+    context.last_decision = DecisionResult(100, "sun_shadow", "Poza słońcem", 40)
+    assert context._target_for_entity("cover.room", 100) == 100
 
 
 @pytest.mark.parametrize(

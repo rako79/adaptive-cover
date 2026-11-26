@@ -1,4 +1,4 @@
-# Adaptive Cover rako Edition 1.6.2
+# Adaptive Cover rako Edition 1.6.3
 
 [Polski](#polski) | [English](#english)
 
@@ -85,7 +85,7 @@ Duplikaty są odrzucane podczas konfiguracji, importu i uruchamiania.
 
 | Typ | Zastosowanie | Najważniejsze dane |
 | --- | --- | --- |
-| Roleta pionowa | Roleta poruszająca się góra/dół | wysokość okna, wymagany obszar cienia, głębokość okna i parapetu |
+| Roleta pionowa | Roleta poruszająca się góra/dół | wysokość okna, wymagany obszar cienia, głębokość okna i parapetu, korekta wysokości zacienianego obszaru |
 | Markiza pozioma | Markiza wysuwana nad oknem lub tarasem | długość markizy i kąt montażu |
 | Żaluzja z uchyłem | Lamele sterowane kątem | rozstaw, głębokość i zakres obrotu lameli |
 
@@ -242,6 +242,25 @@ Termin przejęcia jest zapisywany jako stała chwila. Wariant „do zachodu sło
 nie skraca się podczas kolejnych odświeżeń i po zachodzie wskazuje następny
 zachód.
 
+### Pozycja domyślna latem i zimą
+
+W trybie klimatycznym, gdy słońce nie świeci w okno, można użyć osobnej pozycji:
+
+- `default_percentage_summer`, gdy tryb klimatyczny wykrywa lato (przegrzewanie
+  pokoju lub gorącą prognozę), np. żeby przymknąć roletę przed nadejściem słońca,
+- `default_percentage_winter`, gdy pokój jest poniżej `temp_low`.
+
+Puste pole oznacza zwykłą pozycję domyślną. Thermal Hold i pozycja nocna mają
+pierwszeństwo.
+
+### Korekta wysokości zacienianego obszaru
+
+`height_adjustment_shaded_area` (od `-3` do `3` m, tylko rolety pionowe) przesuwa
+obliczoną wysokość cienia. Wartość dodatnia (np. biurko nad parapetem) zostawia
+roletę bardziej otwartą, ujemna bardziej ją zasłania. Jeśli uczenie stale
+przesuwa roletę w jedną stronę, lepiej poprawić tę wartość albo
+`distance_shaded_area` i zresetować uczenie.
+
 ## BehavioralLearner
 
 Uczenie jest zapisywane osobno dla każdego wpisu konfiguracji w Home Assistant
@@ -252,7 +271,8 @@ Store. Po potwierdzonej ręcznej zmianie aktualizuje:
 - licznik ręcznych korekt.
 
 Uczenie działa wyłącznie podczas aktywnego harmonogramu i tylko dla decyzji
-komfortowych. Nie może zmienić pozycji bezpieczeństwa wynikających z deszczu,
+komfortowych przy słońcu w oknie (`auto`, `thermal_hold`). Gdy słońca nie ma w
+oknie (`sun_shadow`), korekta nie jest ani stosowana, ani uczona. Nie może zmienić pozycji bezpieczeństwa wynikających z deszczu,
 wiatru, zimna ani Strict Sun Block.
 Ręczne przesunięcie większe niż `30` punktów procentowych jest traktowane jako
 tymczasowa scena, np. zamknięcie do projekcji, i nie zmienia wyuczonych
@@ -574,6 +594,19 @@ rule and candidates overridden by higher priority.
 
 ## Climate functions
 
+### Seasonal default position
+
+While the sun is out of view, climate mode can use `default_percentage_summer`
+when it detects summer (room overheating or a hot forecast) and
+`default_percentage_winter` when the room is below `temp_low`. Empty values keep
+the regular default position. Thermal Hold and the night position take priority.
+
+### Shaded area height adjustment
+
+`height_adjustment_shaded_area` (`-3` to `3` m, vertical blinds only) shifts the
+computed shade height: positive values (e.g. a desk above the sill) keep the
+blind further open, negative values close it more.
+
 ### Low radiation
 
 In climate mode, the current lux or irradiance signal takes precedence over the
@@ -671,7 +704,8 @@ manual override updates:
 - the override counter.
 
 Learning is applied only during the active adaptive schedule and only to comfort
-decisions. It cannot alter rain, wind, cold-protection or Strict Sun Block
+decisions with the sun in the window (`auto`, `thermal_hold`); while the sun is
+out of view (`sun_shadow`) the bias is neither applied nor learned. It cannot alter rain, wind, cold-protection or Strict Sun Block
 targets. A manual move greater than `30` percentage points is treated as a
 temporary scene, for example closing the cover for projection, and does not
 change learned preferences. **Reset Behavioral Learning** clears all learned

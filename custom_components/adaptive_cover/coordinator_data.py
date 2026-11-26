@@ -29,6 +29,8 @@ from .const import (
     CONF_BLIND_SPOT_RIGHT,
     CONF_CLOSE_SUNSET_OFFSET,
     CONF_DEFAULT_HEIGHT,
+    CONF_DEFAULT_HEIGHT_SUMMER,
+    CONF_DEFAULT_HEIGHT_WINTER,
     CONF_DELTA_POSITION,
     CONF_DELTA_TIME,
     CONF_DISTANCE,
@@ -43,6 +45,7 @@ from .const import (
     CONF_HEIGHT_WIN,
     CONF_WINDOW_DEPTH,
     CONF_SILL_HEIGHT,
+    CONF_SHADED_HEIGHT_DELTA,
     CONF_INTERP_END,
     CONF_INTERP_LIST,
     CONF_INTERP_LIST_NEW,
@@ -630,6 +633,8 @@ class CoordinatorDataMixin:
             wind_confirmation_required=(
                 wind_confirmation.required_samples if wind_confirmation else 1
             ),
+            default_summer=options.get(CONF_DEFAULT_HEIGHT_SUMMER),
+            default_winter=options.get(CONF_DEFAULT_HEIGHT_WINTER),
             lux_value=_as_float(
                 get_safe_state(self.hass, options.get(CONF_LUX_ENTITY))
             ),
@@ -703,6 +708,10 @@ class CoordinatorDataMixin:
             else 0.0,
             options.get(CONF_SILL_HEIGHT)
             if options.get(CONF_SILL_HEIGHT) is not None
+            else 0.0,
+            # Markizy dziedziczą model pionowy, ale korekta dotyczy tylko rolet pionowych.
+            float(options.get(CONF_SHADED_HEIGHT_DELTA) or 0.0)
+            if self._cover_type == "cover_blind"
             else 0.0,
         ]
 

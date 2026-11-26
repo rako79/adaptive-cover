@@ -291,6 +291,8 @@ class AdaptiveVerticalCover(AdaptiveGeneralCover):
     h_win: float
     window_depth: float
     sill_height: float
+    # Wysokość chronionego miejsca nad podłogą (np. biurko); + odsłania, - zasłania.
+    shaded_height_delta: float
 
     def calculate_position(self) -> float:
         """Calculate blind height with enhanced geometric accuracy."""
@@ -323,7 +325,7 @@ class AdaptiveVerticalCover(AdaptiveGeneralCover):
         base_height = path_length * float(tan(rad(self.sol_elev)))
 
         safety_margin = SafetyMarginCalculator.calculate(self.gamma, self.sol_elev)
-        adjusted_height = base_height * safety_margin
+        adjusted_height = base_height * safety_margin + self.shaded_height_delta
 
         return float(np.clip(adjusted_height, 0, self.h_win))
 

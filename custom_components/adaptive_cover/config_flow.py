@@ -34,6 +34,9 @@ from .const import (
     CONF_HEIGHT_WIN,
     CONF_WINDOW_DEPTH,
     CONF_SILL_HEIGHT,
+    CONF_SHADED_HEIGHT_DELTA,
+    CONF_DEFAULT_HEIGHT_SUMMER,
+    CONF_DEFAULT_HEIGHT_WINTER,
     CONF_INTERP,
     CONF_INTERP_END,
     CONF_INTERP_LIST,
@@ -193,7 +196,7 @@ OPTIONS = vol.Schema(
     }
 )
 
-VERTICAL_OPTIONS = vol.Schema(
+_VERTICAL_BASE_OPTIONS = vol.Schema(
     {
         vol.Optional(CONF_ENTITIES, default=[]): selector.EntitySelector(
             selector.EntitySelectorConfig(
@@ -227,6 +230,17 @@ VERTICAL_OPTIONS = vol.Schema(
     }
 ).extend(OPTIONS.schema)
 
+# Korekta wysokości cienia dotyczy tylko rolet pionowych (markizy mają bazę bez niej).
+VERTICAL_OPTIONS = _VERTICAL_BASE_OPTIONS.extend(
+    {
+        vol.Optional(CONF_SHADED_HEIGHT_DELTA, default=0.0): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=-3.0, max=3.0, step=0.05, mode="slider", unit_of_measurement="m"
+            )
+        ),
+    }
+)
+
 
 HORIZONTAL_OPTIONS = vol.Schema(
     {
@@ -241,7 +255,7 @@ HORIZONTAL_OPTIONS = vol.Schema(
             )
         ),
     }
-).extend(VERTICAL_OPTIONS.schema)
+).extend(_VERTICAL_BASE_OPTIONS.schema)
 
 TILT_OPTIONS = vol.Schema(
     {
@@ -373,6 +387,16 @@ CLIMATE_OPTIONS = vol.Schema(
         ),
         vol.Optional(CONF_WIND_THRESHOLD, default=40): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=150)
+        ),
+        vol.Optional(CONF_DEFAULT_HEIGHT_SUMMER): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=100, step=1, mode="slider", unit_of_measurement="%"
+            )
+        ),
+        vol.Optional(CONF_DEFAULT_HEIGHT_WINTER): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=100, step=1, mode="slider", unit_of_measurement="%"
+            )
         ),
         vol.Optional(CONF_WIND_CONFIRMATION_SAMPLES, default=1): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=MAX_WIND_CONFIRMATION_SAMPLES)
@@ -749,6 +773,9 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_DISTANCE: self.config.get(CONF_DISTANCE),
                 CONF_WINDOW_DEPTH: self.config.get(CONF_WINDOW_DEPTH, 0.0),
                 CONF_SILL_HEIGHT: self.config.get(CONF_SILL_HEIGHT, 0.0),
+                CONF_SHADED_HEIGHT_DELTA: self.config.get(
+                    CONF_SHADED_HEIGHT_DELTA, 0.0
+                ),
                 CONF_DEFAULT_HEIGHT: self.config.get(CONF_DEFAULT_HEIGHT),
                 CONF_MAX_POSITION: self.config.get(CONF_MAX_POSITION),
                 CONF_MIN_POSITION: self.config.get(CONF_MIN_POSITION),
@@ -833,6 +860,8 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_DAWN_DURATION: self.config.get(CONF_DAWN_DURATION, 60),
                 CONF_COLD_THRESHOLD: self.config.get(CONF_COLD_THRESHOLD, 16),
                 CONF_WIND_THRESHOLD: self.config.get(CONF_WIND_THRESHOLD, 40),
+                CONF_DEFAULT_HEIGHT_SUMMER: self.config.get(CONF_DEFAULT_HEIGHT_SUMMER),
+                CONF_DEFAULT_HEIGHT_WINTER: self.config.get(CONF_DEFAULT_HEIGHT_WINTER),
                 CONF_WIND_CONFIRMATION_SAMPLES: self.config.get(
                     CONF_WIND_CONFIRMATION_SAMPLES, 1
                 ),

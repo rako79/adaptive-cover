@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from custom_components.adaptive_cover.coordinator_data import CoordinatorDataMixin
 from custom_components.adaptive_cover.coordinator_events import CoordinatorEventsMixin
 from custom_components.adaptive_cover.decision import DecisionResult
+from custom_components.adaptive_cover.geometry import AdaptiveVerticalCover
 from custom_components.adaptive_cover.manual_control import AdaptiveCoverManager
 from custom_components.adaptive_cover.models import PendingRefreshes, RefreshTrigger
 from custom_components.adaptive_cover.schedule import ScheduleResolver
@@ -130,6 +131,24 @@ def test_weather_wind_outage_keeps_last_reading():
     for state, expected in readings:
         states["weather.home"] = state
         assert CoordinatorDataMixin._wind_snapshot(owner, options) == expected
+
+
+def test_shaded_height_delta_shifts_vertical_blind_only():
+    """Korekta wysokości cienia przesuwa roletę pionową, a markizy nie zmienia."""
+    sun = {"sol_elev": 30.0, "gamma": 0.0, "distance": 1.0, "h_win": 2.15}
+    sun |= {"window_depth": 0.0, "sill_height": 0.0}
+
+    def height(delta: float) -> float:
+        cover = SimpleNamespace(**sun, shaded_height_delta=delta)
+        return AdaptiveVerticalCover.calculate_position(cover)
+
+    assert round(height(0.3) - height(0.0), 6) == 0.3
+    assert height(-3.0) == 0.0  # pełne zasłonięcie nie wychodzi poza okno
+
+    options = {"height_adjustment_shaded_area": 0.4}
+    for cover_type, expected in (("cover_blind", 0.4), ("cover_awning", 0.0)):
+        owner = SimpleNamespace(_cover_type=cover_type)
+        assert CoordinatorDataMixin.vertical_data(owner, options)[-1] == expected
 
 
 def test_zero_is_valid_interpolation_start():

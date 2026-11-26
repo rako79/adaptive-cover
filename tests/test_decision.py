@@ -283,6 +283,8 @@ class DecisionResultTests(unittest.TestCase):
         """Do not learn user preferences from rain or wind safety targets."""
         self.assertIn("thermal_hold", decision.LEARNABLE_DECISION_CODES)
         self.assertNotIn("rain_detected", decision.LEARNABLE_DECISION_CODES)
+        # Brak słońca w oknie: domyślna pozycja bez korekty ze słonecznych poprawek.
+        self.assertNotIn("sun_shadow", decision.LEARNABLE_DECISION_CODES)
         self.assertIn("rain_detected", decision.EMERGENCY_DECISION_CODES)
 
     def test_behavioral_learning_requires_active_adaptive_schedule(self) -> None:

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.3] - 2026-11-26
+
+### Dodane
+- [Dodane] Pozycja domyślna latem i zimą (`default_percentage_summer`, `default_percentage_winter`): w trybie klimatycznym, gdy słońce nie świeci w okno, roleta może przyjąć osobną pozycję przy przegrzewaniu i przy chłodzie.
+- [Dodane] Korekta wysokości zacienianego obszaru (`height_adjustment_shaded_area`, od -3 do 3 m) dla rolet pionowych.
+
+### Zmienione
+- [Zmienione] Wyuczona korekta pozycji działa i uczy się tylko przy słońcu w oknie. Gdy słońca nie ma w oknie, roleta przyjmuje pozycję domyślną bez korekty (wcześniej korekta ze słonecznych poprawek przymykała ją także w cieniu).
+
 ## [1.6.2] - 2026-11-26
 
 ### Dodane

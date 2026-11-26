@@ -184,7 +184,8 @@ DECISION_PRIORITIES = {
     "auto": 10,
 }
 
-LEARNABLE_DECISION_CODES = frozenset({"auto", "thermal_hold", "sun_shadow"})
+# Bez sun_shadow: korekta wyuczona przy słońcu nie może przymykać rolety w cieniu.
+LEARNABLE_DECISION_CODES = frozenset({"auto", "thermal_hold"})
 SCHEDULE_EXEMPT_DECISION_CODES = frozenset(
     {
         "rain_detected",
