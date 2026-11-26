@@ -205,6 +205,66 @@ async def test_last_retry_is_verified_before_reporting_failure(monkeypatch):
     )
 
 
+async def test_retry_waits_out_time_limit_without_consuming_attempt(monkeypatch):
+    """Pierwsza kontrola wykrywa blokadę, a ruch czeka na jej wygaśnięcie."""
+    context = AuditCoordinator()
+    entity = "cover.room"
+    executor = context.movement
+    executor.command_generation[entity] = 1
+    executor.wait_for_target[entity] = True
+    executor.verify_task_metadata[entity] = {"generation": 1}
+    waits = []
+    with freeze_time("2026-11-19 10:00:00") as clock:
+        context.manager.movement_history[entity] = [datetime.now(UTC)]
+
+        async def verify_delay(_entity, _generation, attempt, wait_time):
+            waits.append(attempt)
+            clock.tick(timedelta(seconds=wait_time))
+            if len(waits) == 3:
+                context.current_position = 100
+
+        monkeypatch.setattr(executor, "_wait_before_verification", verify_delay)
+        await executor.async_verify_and_retry(
+            entity, 100, "set_cover_position", {"position": 100},
+            generation=1, wait_time=300, max_retries=1,
+        )
+    assert waits == [1, 1, 2]
+    assert len(context.hass.services.calls) == 1
+    assert executor.verify_task_metadata[entity]["outcome"] == "target_within_tolerance"
+
+
+async def test_dry_run_cancels_existing_physical_retry():
+    """Włączenie symulacji anuluje wcześniej zaplanowany ruch fizyczny."""
+    context = FakeContext()
+    executor = CoverMovementExecutor(context)
+    entity = "cover.room"
+    await executor.async_set_position(entity, 40)
+    task = executor.verify_tasks[entity]
+    context.dry_run_toggle = True
+    assert executor.retry_is_stale(entity, 40, 1, True)
+    executor.reconcile(entity, 40)
+    await asyncio.gather(task, return_exceptions=True)
+    assert task.cancelled()
+    assert len(context.hass.services.calls) == 1
+
+
+def test_window_safety_handles_unknown_and_reverse_positions():
+    """Brak kontaktronu wstrzymuje ruch, a odwrócenie zmienia kierunek pozycji."""
+    context = FakeContext()
+    executor = CoverMovementExecutor(context)
+    context.window_state_unknown = True
+    assert executor.safety_block_reason(50, 100) == "window_state_unavailable"
+    context.decision_code = "wind_detected"  # awaria kontaktronu nie wyłącza ochrony
+    assert executor.safety_block_reason(100, 0) is None
+    context.decision_code = "auto"
+    context.window_state_unknown = False
+    context.is_window_open = True
+    context.window_open_action = "block_closing_only"
+    context.reversed_motor_position = True
+    assert executor.safety_block_reason(50, 100) == "window_open_block_closing"
+    assert executor.safety_block_reason(50, 0) is None
+
+
 def test_verification_delay_is_independent_of_movement_limits():
     """Ustawienia 10/5 minut nie opóźniają samego odczytu napędu."""
     context = AuditCoordinator()

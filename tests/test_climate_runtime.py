@@ -168,6 +168,20 @@ class ClimateArbiterTests(unittest.TestCase):
 
         self.assertEqual("wind_detected", result.code)
 
+    def test_wind_waits_for_configured_confirmation(self) -> None:
+        """Silny poryw bez kompletu odczytów nie wywołuje decyzji wiatrowej."""
+        for samples in (1, 2, 3):
+            with self.subTest(samples=samples):
+                data = climate_data(
+                    wind_speed_kmh=40.3,
+                    wind_confirmation_samples=samples,
+                    wind_confirmation_required=3,
+                )
+                state = climate.ClimateCoverState(FakeCover(), data)
+                self.assertEqual(
+                    samples == 3, state.get_decision().code == "wind_detected"
+                )
+
     def test_unavailable_irradiance_disables_strict_sun(self) -> None:
         """Brak liczby nie może oznaczać mocnego słońca."""
         data = climate_data(

@@ -116,6 +116,10 @@ class FakeContext:
         self.control_toggle = True
         self.dry_run_toggle = False
         self.is_window_open = False
+        self.window_state_unknown = False
+        self.wind_opening_unconfirmed = False
+        self.reversed_motor_position = False
+        self.adaptive_movement_allowed = True
         self.window_open_action = "pause"
         self.window_open_position = 100
         self.state = 40
@@ -176,6 +180,41 @@ class MovementRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result)
         self.assertEqual("service_call_failed", result.reason)
 
+    async def test_foreign_integration_error_returns_failed_result(self) -> None:
+        """Wyjątek spoza HA (np. błąd sieci) nie przerywa cyklu odświeżania."""
+        context = FakeContext()
+        context.hass.services.error = RuntimeError("connection reset")
+        executor = movement.CoverMovementExecutor(context)
+
+        result = await executor.async_set_position("cover.room", 45)
+
+        self.assertEqual("service_call_failed", result.reason)
+
+    async def test_hanging_cover_service_does_not_block_automation(self) -> None:
+        """Zawieszona integracja rolety nie trzyma cyklu dłużej niż limit."""
+        context = FakeContext()
+        release = asyncio.Event()
+
+        async def hanging_call(*_args, **_kwargs):
+            await release.wait()
+
+        context.hass.services.async_call = hanging_call
+        executor = movement.CoverMovementExecutor(context)
+        original_timeout = movement.SERVICE_CALL_TIMEOUT
+        movement.SERVICE_CALL_TIMEOUT = 0.01
+        try:
+            async with asyncio.timeout(1):
+                result = await executor.async_set_position("cover.room", 45)
+        finally:
+            movement.SERVICE_CALL_TIMEOUT = original_timeout
+        call_task = context.tasks[0]
+
+        self.assertEqual(models.MovementOutcome.EXECUTED, result.outcome)
+        self.assertFalse(call_task.done())  # polecenie trwa dalej w tle
+        release.set()
+        await call_task
+        executor.cancel()
+
     async def test_retry_compares_learned_final_target(self) -> None:
         """Cel 45% z biasem nie może być uznany za nieaktualny wobec bazy 40%."""
         context = FakeContext()
@@ -193,6 +232,7 @@ class MovementRuntimeTests(unittest.IsolatedAsyncioTestCase):
         context.decision_code = "rain_detected"
         context.target = 0
         context.manager.allow_move = False
+        context.manager.manual = True
         executor = movement.CoverMovementExecutor(context)
         executor.command_generation["cover.room"] = 1
         executor.wait_for_target["cover.room"] = True

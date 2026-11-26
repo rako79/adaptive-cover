@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from astral.sun import azimuth, elevation
 import numpy as np
-import pandas as pd
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from numpy import cos, sin, tan
@@ -83,8 +83,8 @@ class AdaptiveGeneralCover(ABC):
 
     hass: HomeAssistant
     logger: ConfigContextAdapter
-    sol_azi: float
-    sol_elev: float
+    sol_azi: float | None
+    sol_elev: float | None
     sunset_pos: int
     sunset_off: int
     sunrise_off: int
@@ -118,32 +118,15 @@ class AdaptiveGeneralCover(ABC):
 
     def solar_times(self):
         """Determine start/end times."""
-        df_today = pd.DataFrame(
-            {
-                "azimuth": self.sun_data.solar_azimuth,
-                "elevation": self.sun_data.solar_elevation,
-            }
-        )
-        solpos = df_today.set_index(self.sun_data.times)
-
-        alpha = solpos["azimuth"]
-        frame = (
-            (alpha - self.azi_min_abs) % 360
-            <= (self.azi_max_abs - self.azi_min_abs) % 360
-        ) & (solpos["elevation"] > 0)
-
-        if solpos[frame].empty:
-            return None, None
-        else:
-            return (
-                solpos[frame].index[0].to_pydatetime(),
-                solpos[frame].index[-1].to_pydatetime(),
-            )
-
-    @property
-    def _get_azimuth_edges(self) -> tuple[int, int]:
-        """Calculate azimuth edges."""
-        return self.fov_left + self.fov_right
+        sun = self.sun_data
+        span = (self.azi_max_abs - self.azi_min_abs) % 360
+        in_view = [
+            moment
+            for moment in sun.times
+            if (azimuth(sun.observer, moment) - self.azi_min_abs) % 360 <= span
+            and elevation(sun.observer, moment) > 0
+        ]
+        return (in_view[0], in_view[-1]) if in_view else (None, None)
 
     @property
     def is_sun_in_blind_spot(self) -> bool:
@@ -197,6 +180,8 @@ class AdaptiveGeneralCover(ABC):
     @property
     def valid(self) -> bool:
         """Determine if sun is in front of window."""
+        if self.sol_azi is None or self.sol_elev is None:
+            return False
         # clip azi_min and azi_max to 90
         azi_min = min(self.fov_left, 90)
         azi_max = min(self.fov_right, 90)
@@ -230,10 +215,6 @@ class AdaptiveGeneralCover(ABC):
             default = self.sunset_pos
         return default
 
-    def fov(self) -> list:
-        """Return field of view."""
-        return [self.azi_min_abs, self.azi_max_abs]
-
     @property
     def apply_min_position(self) -> bool:
         """Check if min position is applied."""
@@ -255,7 +236,7 @@ class AdaptiveGeneralCover(ABC):
     @property
     def direct_sun_valid(self) -> bool:
         """Check if sun is directly in front of window."""
-        return (self.valid) & (not self.sunset_valid) & (not self.is_sun_in_blind_spot)
+        return self.valid and not self.sunset_valid and not self.is_sun_in_blind_spot
 
     @abstractmethod
     def calculate_position(self) -> float:

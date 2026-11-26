@@ -195,6 +195,14 @@ rzeczywiście wystawione na bezpośrednie słońce. Ochrona zostaje zwolniona:
 
 - Fizyczny czujnik deszczu ma pierwszeństwo przed opisem prognozy pogody.
 - Prędkość wiatru jest przeliczana do `km/h` z `m/s`, `mph` lub węzłów.
+- Dla dedykowanego czujnika można wymagać od 1 do 5 kolejnych raportów powyżej
+  progu (`wind_confirmation_samples`). Domyślnie 1 oznacza natychmiastową
+  reakcję. Niższy lub równy odczyt, brak danych albo ponad 2 minuty przerwy
+  przerywają niepotwierdzoną serię. Po potwierdzeniu brak danych nie zwalnia
+  ochrony, dopóki czujnik nie zgłosi poprawnej wartości na progu lub poniżej.
+  Po restarcie lub przeładowaniu licznik startuje od nowa, ale zwykłe otwieranie
+  jest zablokowane, dopóki czujnik nie pokaże wartości na progu lub poniżej
+  (wystarczy jego bieżący stan, jeśli już jest spokojny).
 - Można ustawić osobne pozycje awaryjne dla deszczu i wiatru.
 - Opcja `rain_night_only` ogranicza reakcję na deszcz do pory nocnej.
 - Deszcz i wiatr omijają harmonogram, ręczne przejęcie, cooldown oraz limity
@@ -246,6 +254,9 @@ Store. Po potwierdzonej ręcznej zmianie aktualizuje:
 Uczenie działa wyłącznie podczas aktywnego harmonogramu i tylko dla decyzji
 komfortowych. Nie może zmienić pozycji bezpieczeństwa wynikających z deszczu,
 wiatru, zimna ani Strict Sun Block.
+Ręczne przesunięcie większe niż `30` punktów procentowych jest traktowane jako
+tymczasowa scena, np. zamknięcie do projekcji, i nie zmienia wyuczonych
+preferencji.
 Przycisk **Reset Behavioral Learning** usuwa wszystkie wyuczone korekty wpisu.
 Znacznik ostatniego bezpośredniego słońca jest zapisywany oddzielnie i przetrwa
 restart Home Assistant, dzięki czemu Thermal Hold nie traci kontekstu.
@@ -608,6 +619,13 @@ stress is no longer present.
 
 - A physical rain sensor takes precedence over the weather forecast state.
 - Wind values are normalized from `m/s`, `mph` or knots to `km/h`.
+- With a dedicated wind sensor, require 1 to 5 consecutive reports above the
+  threshold (`wind_confirmation_samples`). The default of 1 responds immediately.
+  At-or-below-threshold or missing data, or a gap over 2 minutes, breaks a pending
+  sequence. Once confirmed, missing data does not release protection; a valid
+  report at or below the threshold is required. After startup or reload, the
+  count starts over; ordinary opening waits until the sensor shows a value at or
+  below the threshold (its current state counts if it is already calm).
 - Rain and wind can use separate emergency positions.
 - `rain_night_only` limits rain protection to nighttime.
 - Rain and wind bypass the schedule, manual override, cooldown and movement
@@ -654,7 +672,10 @@ manual override updates:
 
 Learning is applied only during the active adaptive schedule and only to comfort
 decisions. It cannot alter rain, wind, cold-protection or Strict Sun Block
-targets. **Reset Behavioral Learning** clears all learned values for the entry.
+targets. A manual move greater than `30` percentage points is treated as a
+temporary scene, for example closing the cover for projection, and does not
+change learned preferences. **Reset Behavioral Learning** clears all learned
+values for the entry.
 The last direct-sun timestamp is persisted separately across Home Assistant
 restarts, preserving Thermal Hold context.
 The movement and schedule guard upgrade resets older learned offsets once

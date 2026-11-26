@@ -178,6 +178,8 @@ class ClimateCoverData:
     night_purge_previous_active: bool = False
     inside_temperature_entity: str | None = None
     outside_temperature_entity: str | None = None
+    wind_confirmation_samples: int | None = None
+    wind_confirmation_required: int = 1
 
     @property
     def inside_temperature(self) -> float | None:
@@ -521,7 +523,6 @@ class ClimateCoverState(NormalCoverState):
 
     def tilt_without_presence(self, degrees: int) -> int:
         """Wyznacz pochylenie lamel bez obecności."""
-        beta = np.rad2deg(self.cover.beta)
         if self.cover.valid:
             stress = self.climate_data.thermal_stress
             if self.climate_data.is_summer or stress > 0.0:
@@ -529,6 +530,7 @@ class ClimateCoverState(NormalCoverState):
                 self.cover.state_reason = "Brak obecności: termiczne domknięcie lamel."
                 return int((80 / degrees * 100) * (1.0 - effective))
             if self.climate_data.is_winter and self.cover.mode == "mode2":
+                beta = np.rad2deg(self.cover.beta)
                 self.cover.state_reason = "Zimowe ustawienie równoległe do promieni."
                 return int((beta + 90) / degrees * 100)
             self.cover.state_reason = "Domyślne otwarcie lamel do 80 stopni."
@@ -655,11 +657,17 @@ class ClimateCoverState(NormalCoverState):
         )
         self._evaluate(
             "wind_detected",
-            data.current_wind_speed > data.wind_threshold,
+            (
+                data.current_wind_speed > data.wind_threshold
+                if data.wind_confirmation_samples is None
+                else data.wind_confirmation_samples >= data.wind_confirmation_required
+            ),
             data.wind_position,
             f"Ochrona pogodowa: wiatr, pozycja {data.wind_position}%.",
             wind_speed=data.current_wind_speed,
             threshold=data.wind_threshold,
+            confirmation_samples=data.wind_confirmation_samples,
+            confirmation_required=data.wind_confirmation_required,
         )
         self._evaluate(
             "cold_protection",

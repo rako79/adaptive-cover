@@ -182,6 +182,52 @@ class UnitConversionTests(unittest.TestCase):
         self.assertAlmostEqual(36.0, decision.wind_speed_to_kmh(10.0, "m/s"))
 
 
+class WindConfirmationTests(unittest.TestCase):
+    """Sprawdź potwierdzanie przekroczenia progu przez raporty stacji."""
+
+    def test_wind_requires_three_fresh_consecutive_reports(self) -> None:
+        """Odrzuć pojedynczy poryw i nie doliczaj duplikatu raportu."""
+        wind = decision.WindConfirmation(3, 40)
+        now = datetime(2026, 11, 19, 9, 6, 32, tzinfo=UTC)
+
+        self.assertFalse(wind.record(40.3, now))
+        self.assertFalse(wind.record(27.7, now + timedelta(seconds=10)))
+        self.assertEqual(0, wind.samples)
+        next_report = now + timedelta(seconds=20)
+        self.assertFalse(wind.record(42, next_report))
+        self.assertFalse(wind.record(42, next_report))
+        self.assertFalse(wind.record(42, now + timedelta(seconds=30)))
+        self.assertEqual(2, wind.samples)
+        self.assertTrue(wind.record(42, now + timedelta(seconds=40)))
+        self.assertFalse(wind.record(None, now + timedelta(seconds=50)))
+        self.assertEqual(3, wind.samples)
+        self.assertTrue(wind.record(40, now + timedelta(minutes=1)))
+        self.assertEqual(0, wind.samples)
+
+    def test_startup_seed_accepts_only_calm_reading(self) -> None:
+        """Spokojny stan przy starcie zwalnia otwieranie; silny wiatr czeka na raporty."""
+        calm = decision.WindConfirmation(1, 40)
+        calm.seed(12)
+        self.assertFalse(calm.blocks_opening)
+        storm = decision.WindConfirmation(1, 40)
+        storm.seed(55)
+        storm.seed(None)
+        self.assertTrue(storm.blocks_opening)
+        self.assertEqual(0, storm.samples)
+
+    def test_gap_and_missing_data_break_a_pending_run(self) -> None:
+        """Nie łącz odczytów rozdzielonych przerwą lub niedostępnością."""
+        wind = decision.WindConfirmation(3, 40)
+        now = datetime(2026, 11, 19, 9, 6, tzinfo=UTC)
+        wind.record(42, now)
+        wind.record(None, now + timedelta(seconds=10))
+        self.assertEqual(0, wind.samples)
+        wind.record(42, now + timedelta(seconds=20))
+        self.assertEqual(0, wind.samples_at(now + timedelta(minutes=3)))
+        wind.record(42, now + timedelta(minutes=3))
+        self.assertEqual(1, wind.samples)
+
+
 class PositionToleranceTests(unittest.TestCase):
     """Verify movement suppression for devices with imprecise end positions."""
 

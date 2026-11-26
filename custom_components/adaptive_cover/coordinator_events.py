@@ -6,13 +6,14 @@ import asyncio
 import datetime as dt
 
 import homeassistant.util.dt as dt_util
-from homeassistant.core import Event, EventStateChangedData, callback
+from homeassistant.core import Event, EventStateChangedData, EventStateReportedData, callback
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import CONF_NIGHT_PURGE_ENABLED, CONF_NIGHT_PURGE_END_TIME
+from .const import CONF_ENTITIES, CONF_NIGHT_PURGE_ENABLED, CONF_NIGHT_PURGE_END_TIME
 from .models import PendingRefreshes, RefreshTrigger, StateChangedData
 
 RUNTIME_INITIALIZATION_DELAY = 2
+FORECAST_TIMEOUT = 10
 
 
 def _as_float(value, default=None):
@@ -71,6 +72,10 @@ class CoordinatorEventsMixin:
         """Config entry first refresh."""
         await self.learner.async_load()
         self._last_direct_sun_at = self.learner.last_direct_sun_at
+        self.manager.restore_manual_overrides(
+            self.learner.manual_overrides,
+            self._active_options.get(CONF_ENTITIES, []),
+        )
         await super().async_config_entry_first_refresh()
         self.logger.debug("Config entry first refresh")
 
@@ -125,20 +130,6 @@ class CoordinatorEventsMixin:
 
         return self.hass.async_create_task(target, name)
 
-    def _update_verify_metadata(
-        self,
-        entity: str,
-        *,
-        expected_generation: int | None = None,
-        **changes,
-    ) -> None:
-        """Update the bounded retry snapshot retained for one cover."""
-        self.movement.update_metadata(
-            entity,
-            expected_generation=expected_generation,
-            **changes,
-        )
-
     async def async_timed_refresh(self, event) -> None:
         """Control state at end time."""
         self.schedule_controller.mark_fired("end_time")
@@ -169,14 +160,15 @@ class CoordinatorEventsMixin:
             return cached_temperature
 
         try:
-            response = await self.hass.services.async_call(
-                "weather",
-                "get_forecasts",
-                {"entity_id": weather_entity, "type": "daily"},
-                blocking=True,
-                return_response=True,
-            )
-        except HomeAssistantError as err:
+            async with asyncio.timeout(FORECAST_TIMEOUT):
+                response = await self.hass.services.async_call(
+                    "weather",
+                    "get_forecasts",
+                    {"entity_id": weather_entity, "type": "daily"},
+                    blocking=True,
+                    return_response=True,
+                )
+        except (HomeAssistantError, TimeoutError) as err:
             self.logger.debug(
                 "Unable to fetch weather forecast for %s: %s",
                 weather_entity,
@@ -200,6 +192,22 @@ class CoordinatorEventsMixin:
         self._pending_refreshes.add(RefreshTrigger.ENTITY_STATE)
         await self.async_refresh()
 
+    @callback
+    def async_check_wind_report(
+        self, event: Event[EventStateChangedData | EventStateReportedData]
+    ) -> None:
+        """Licz raporty stacji, także gdy ponownie przesyła tę samą prędkość."""
+        confirmation = self._wind_confirmation
+        if self._unloading or confirmation is None:
+            return
+        speed = self._wind_sensor_speed(event.data["new_state"])
+        was_blocked = confirmation.blocks_opening
+        if confirmation.record(speed, event.time_fired) or (
+            was_blocked != confirmation.blocks_opening
+        ):
+            self._pending_refreshes.add(RefreshTrigger.ENTITY_STATE)
+            self._create_background_task(self.async_refresh(), "adaptive_cover wind")
+
     async def async_check_cover_state_change(
         self, event: Event[EventStateChangedData]
     ) -> None:
@@ -222,41 +230,9 @@ class CoordinatorEventsMixin:
             self.state_change_data = state_change
             self._pending_cover_events.append(state_change)
             self._pending_refreshes.add(RefreshTrigger.COVER_STATE)
-            self.process_entity_state_change(state_change)
             await self.async_refresh()
         else:
             self.logger.debug("Old state is unknown, not processing")
-
-    def process_entity_state_change(
-        self,
-        event: StateChangedData | None = None,
-    ) -> None:
-        """Process state change event."""
-        event = event or self.state_change_data
-        if event is None or event.new_state is None:
-            return
-        self.logger.debug("Processing state change event: %s", event)
-        entity_id = event.entity_id
-        if self.ignore_intermediate_states and event.new_state.state in [
-            "opening",
-            "closing",
-        ]:
-            self.logger.debug("Ignoring intermediate state change for %s", entity_id)
-            return
-        if self.movement.is_waiting(entity_id):
-            position = event.new_state.attributes.get(
-                "current_position"
-                if self._cover_type != "cover_tilt"
-                else "current_tilt_position"
-            )
-            if position == self.movement.target_for(entity_id):
-                self.logger.debug("Position %s reached for %s", position, entity_id)
-            self.logger.debug(
-                "Wait for target: %s",
-                self.movement.wait_for_target,
-            )
-        else:
-            self.logger.debug("No wait for target call for %s", entity_id)
 
     @callback
     def _async_cancel_update_listener(self) -> None:

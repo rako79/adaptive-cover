@@ -74,14 +74,21 @@ class CoordinatorExecutionMixin:
 
     async def async_handle_window_policy(self, entity: str, target_state: int) -> bool:
         """Apply configured behavior while the window or door is open."""
+        if (
+            self.window_state_unknown
+            and self._decision_code() not in EMERGENCY_DECISION_CODES
+        ):
+            self.manager.set_status(entity, "blocked", "window_state_unavailable")
+            return True
         if not self.is_window_open:
             return False
 
         action = self.window_open_action
         if action == WINDOW_ACTION_BLOCK_CLOSING_ONLY:
             current = self._get_current_position(entity)
-            if current is not None and target_state < current:
-                self.manager.set_status(entity, "blocked", "window_open_block_closing")
+            reason = self.movement.safety_block_reason(current, target_state)
+            if reason is not None:
+                self.manager.set_status(entity, "blocked", reason)
                 self.logger.debug(
                     "Window open: blocked closing movement for %s", entity
                 )
@@ -128,25 +135,7 @@ class CoordinatorExecutionMixin:
         )
         if self.control_toggle:
             for cover in self.entities:
-                if self._pending_refreshes.generation > self._active_refresh_generation:
-                    self.manager.set_status(
-                        cover,
-                        "skipped",
-                        "newer_refresh_pending",
-                    )
-                    break
-                target = self._target_for_entity(cover, state)
-                if await self.async_handle_window_policy(cover, target):
-                    continue
-                if not self.manager.is_cover_manual(cover):
-                    await self.async_set_manual_position(
-                        cover, target, enforce_current_target=False
-                    )
-                else:
-                    self.logger.debug(
-                        "Skiping timed refresh for %s because it is under manual control",
-                        cover,
-                    )
+                await self.async_handle_call_service(cover, state, options)
         else:
             self.logger.debug("Timed refresh but control toggle is off")
         self.logger.debug("Timed refresh handled")
@@ -269,43 +258,4 @@ class CoordinatorExecutionMixin:
             entity,
             state,
             enforce_current_target=enforce_current_target,
-        )
-
-    async def async_verify_and_retry(
-        self,
-        entity,
-        target_state,
-        service,
-        service_data,
-        *,
-        generation,
-        enforce_current_target=True,
-        wait_time=45,
-        max_retries=2,
-    ):
-        """Deleguj kontrolę celu i retry do wykonawcy ruchów."""
-        await self.movement.async_verify_and_retry(
-            entity,
-            target_state,
-            service,
-            service_data,
-            generation=generation,
-            enforce_current_target=enforce_current_target,
-            wait_time=wait_time,
-            max_retries=max_retries,
-        )
-
-    def _retry_is_stale(
-        self,
-        entity: str,
-        target_state: int,
-        generation: int,
-        enforce_current_target: bool,
-    ) -> bool:
-        """Sprawdź aktualność retry przez wspólny wykonawca ruchów."""
-        return self.movement.retry_is_stale(
-            entity,
-            target_state,
-            generation,
-            enforce_current_target,
         )

@@ -83,6 +83,7 @@ DEFAULT_OPTIONS = {
     c.CONF_DAWN_DURATION: 60,
     c.CONF_COLD_THRESHOLD: 16,
     c.CONF_WIND_THRESHOLD: 40,
+    c.CONF_WIND_CONFIRMATION_SAMPLES: 1,
     c.CONF_NIGHT_PURGE_ENABLED: True,
     c.CONF_NIGHT_PURGE_END_TIME: "07:00:00",
     c.CONF_PURGE_POS: 15,
@@ -105,6 +106,12 @@ def normalize_options(options: dict | None) -> dict:
     """Zwróć kompletny i niezależny słownik opcji."""
     normalized = deepcopy(DEFAULT_OPTIONS)
     normalized.update(dict(options or {}))
+    wind_samples = normalized[c.CONF_WIND_CONFIRMATION_SAMPLES]
+    if (
+        type(wind_samples) is not int
+        or not 1 <= wind_samples <= c.MAX_WIND_CONFIRMATION_SAMPLES
+    ):
+        normalized[c.CONF_WIND_CONFIRMATION_SAMPLES] = 1
     if not isinstance(normalized.get(c.CONF_ENTITIES), list):
         normalized[c.CONF_ENTITIES] = []
     duration = normalized.get(c.CONF_MANUAL_OVERRIDE_DURATION)

@@ -25,6 +25,9 @@ from .const import (
     CONF_MANUAL_OVERRIDE_DURATION,
     CONF_MANUAL_OVERRIDE_RESET,
     CONF_RETURN_SUNSET,
+    CONF_WIND_CONFIRMATION_SAMPLES,
+    CONF_WIND_ENTITY,
+    CONF_WIND_THRESHOLD,
     DOMAIN,
     LOGGER,
 )
@@ -32,7 +35,7 @@ from .coordinator_data import CoordinatorDataMixin
 from .coordinator_events import CoordinatorEventsMixin
 from .coordinator_execution import CoordinatorExecutionMixin
 from .coordinator_pipeline import CoordinatorPipelineMixin
-from .decision import DecisionResult
+from .decision import DecisionResult, WindConfirmation
 from .learning import BehavioralLearner
 from .manual_control import AdaptiveCoverManager
 from .models import (
@@ -104,6 +107,23 @@ class AdaptiveDataUpdateCoordinator(
         self._last_direct_sun_at: dt.datetime | None = None
         self._direct_sun_was_active = False
         self._cold_protection_active = False
+        self._last_weather_wind_kmh = 0.0
+        # Także przy 1 odczycie: utrata czujnika nie może zwolnić ochrony przed wiatrem.
+        self._wind_confirmation = (
+            WindConfirmation(
+                self._active_options[CONF_WIND_CONFIRMATION_SAMPLES],
+                self._active_options[CONF_WIND_THRESHOLD],
+            )
+            if self._active_options[CONF_WIND_ENTITY]
+            else None
+        )
+        if self._wind_confirmation is not None:
+            # Czujnik, który nie powtarza niezmienionej wartości, nie zablokuje otwierania.
+            self._wind_confirmation.seed(
+                self._wind_sensor_speed(
+                    self.hass.states.get(self._active_options[CONF_WIND_ENTITY])
+                )
+            )
         self._night_purge_active = False
         self._outside_temperature_filter = TemperatureStabilityFilter()
         self._outside_temperature_raw: float | None = None
@@ -175,6 +195,8 @@ class AdaptiveDataUpdateCoordinator(
         """Powiąż timery i zadania z cyklem życia wpisu."""
         self.config_entry.async_on_unload(self._async_cancel_night_purge_listener)
         self.config_entry.async_on_unload(self._async_cancel_runtime_tasks)
+        # Opóźniony zapis (1 s) nie zdążyłby przed szybkim przeładowaniem wpisu.
+        self.config_entry.async_on_unload(self.learner.async_flush)
 
     async def _async_update_data(self) -> AdaptiveCoverData:
         """Zmierz zdrowie jednego pełnego odświeżenia."""

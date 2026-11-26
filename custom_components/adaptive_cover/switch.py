@@ -178,8 +178,11 @@ class AdaptiveCoverSwitch(
         self.coordinator.logger.debug("Turning on")
         self._attr_is_on = True
         setattr(self.coordinator, self._key, True)
-        await self.coordinator.async_refresh()
-        if self._key == "control_toggle" and kwargs.get("added") is not True:
+        restoring = kwargs.get("added") is True
+        # Przy odtwarzaniu stanu przeliczenie i tak nastąpi przy inicjalizacji runtime.
+        if not restoring:
+            await self.coordinator.async_refresh()
+        if self._key == "control_toggle" and not restoring:
             for entity in self.coordinator.entities:
                 await self.coordinator.async_handle_call_service(
                     entity,
@@ -196,7 +199,8 @@ class AdaptiveCoverSwitch(
         if self._key == "control_toggle" and kwargs.get("added") is not True:
             for entity in self.coordinator.manager.manual_controlled:
                 self.coordinator.manager.reset(entity)
-        await self.coordinator.async_refresh()
+        if kwargs.get("added") is not True:
+            await self.coordinator.async_refresh()
         self.schedule_update_ha_state()
 
     async def async_added_to_hass(self) -> None:

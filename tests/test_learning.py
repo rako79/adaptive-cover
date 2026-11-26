@@ -111,6 +111,7 @@ class BehavioralLearnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_override_updates_and_schedules_persistence(self) -> None:
         """Learn bounded position and temperature preferences."""
         learner = learning.BehavioralLearner(object(), Mock(), "entry")
+        await learner.async_load()
         learner.register_override("cover.room", 23.0, 50, 30, True)
         self.assertEqual(48, learner.get_adjusted_position("cover.room", 50))
         self.assertEqual(-0.1, learner.get_temp_offset("cover.room"))
@@ -123,9 +124,25 @@ class BehavioralLearnerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNotNone(learner.diagnostics()["last_save_scheduled_at"])
 
+    async def test_large_manual_override_is_not_learned(self) -> None:
+        """Pełne zamknięcie chwilowej sceny nie zmienia preferencji komfortu."""
+        learner = learning.BehavioralLearner(object(), Mock(), "entry")
+        learner.register_override("cover.room", 20.4, 100, 0, False)
+
+        self.assertEqual(100, learner.get_adjusted_position("cover.room", 100))
+        self.assertEqual(0.0, learner.get_temp_offset("cover.room"))
+        self.assertNotIn("cover.room", learner.override_counts)
+        self.assertIsNone(learner._store.delayed_payload)
+        self.assertFalse(learner.diagnostics()["last_override"]["learned"])
+        self.assertEqual(
+            "position_delta_too_large",
+            learner.diagnostics()["last_override"]["ignore_reason"],
+        )
+
     async def test_reset_clears_all_learning(self) -> None:
         """Clear learned offsets and persist the empty state."""
         learner = learning.BehavioralLearner(object(), Mock(), "entry")
+        await learner.async_load()
         learner.register_override("cover.room", 23.0, 50, 30, True)
         learner.reset()
         self.assertEqual(50, learner.get_adjusted_position("cover.room", 50))
@@ -154,9 +171,41 @@ class BehavioralLearnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(learner.last_load_error)
         self.assertEqual(100, learner.get_adjusted_position("cover.room", 100))
 
+    async def test_bad_manual_override_entry_keeps_learning(self) -> None:
+        """Błędny wpis przejęcia jest pomijany, a wyuczone poprawki zostają."""
+        learner = learning.BehavioralLearner(object(), Mock(), "entry")
+        learner._store.data = {
+            "learning_guard_version": learning.LEARNING_GUARD_VERSION,
+            "position_biases": {"cover.room": 4.5},
+            "manual_overrides": {
+                "cover.bad": "2026-11-26T12:00:00+00:00",
+                "cover.ok": ["2026-11-26T12:00:00+00:00", "2026-11-26T14:00:00+00:00"],
+            },
+        }
+
+        await learner.async_load()
+
+        self.assertEqual(4.5, learner.position_biases["cover.room"])
+        self.assertEqual(["cover.ok"], list(learner.manual_overrides))
+
+    async def test_failed_load_never_overwrites_stored_learning(self) -> None:
+        """Chwilowy błąd dysku przy starcie nie może skasować wyuczonych danych."""
+        learner = learning.BehavioralLearner(object(), Mock(), "entry")
+
+        async def failing_load():
+            raise OSError("disk busy")
+
+        learner._store.async_load = failing_load
+        await learner.async_load()
+        learner.register_override("cover.room", 23.0, 50, 30, True)
+
+        self.assertFalse(learner.loaded)
+        self.assertIsNone(learner._store.delayed_payload)
+
     async def test_direct_sun_is_persisted_without_excessive_writes(self) -> None:
         """Retain thermal context and throttle repeated storage updates."""
         learner = learning.BehavioralLearner(object(), Mock(), "entry")
+        await learner.async_load()
         first = datetime(2026, 7, 14, 10, 0, tzinfo=UTC)
         learner.remember_direct_sun(first)
         first_payload = learner._store.delayed_payload

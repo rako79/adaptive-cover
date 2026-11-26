@@ -91,6 +91,8 @@ from .const import (
     CONF_DAWN_DURATION,
     CONF_COLD_THRESHOLD,
     CONF_WIND_THRESHOLD,
+    CONF_WIND_CONFIRMATION_SAMPLES,
+    MAX_WIND_CONFIRMATION_SAMPLES,
     CONF_PURGE_POS,
     CONF_THERMAL_HOLD_AFTER_SUN,
     CONF_THERMAL_HOLD_DURATION,
@@ -371,6 +373,9 @@ CLIMATE_OPTIONS = vol.Schema(
         ),
         vol.Optional(CONF_WIND_THRESHOLD, default=40): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=150)
+        ),
+        vol.Optional(CONF_WIND_CONFIRMATION_SAMPLES, default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=MAX_WIND_CONFIRMATION_SAMPLES)
         ),
         vol.Optional(
             CONF_NIGHT_PURGE_ENABLED, default=True
@@ -828,6 +833,9 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                 CONF_DAWN_DURATION: self.config.get(CONF_DAWN_DURATION, 60),
                 CONF_COLD_THRESHOLD: self.config.get(CONF_COLD_THRESHOLD, 16),
                 CONF_WIND_THRESHOLD: self.config.get(CONF_WIND_THRESHOLD, 40),
+                CONF_WIND_CONFIRMATION_SAMPLES: self.config.get(
+                    CONF_WIND_CONFIRMATION_SAMPLES, 1
+                ),
                 CONF_NIGHT_PURGE_ENABLED: self.config.get(
                     CONF_NIGHT_PURGE_ENABLED, True
                 ),

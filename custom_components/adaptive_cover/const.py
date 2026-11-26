@@ -3,7 +3,7 @@
 import logging
 
 DOMAIN = "adaptive_cover"
-INTEGRATION_VERSION = "1.6.0"
+INTEGRATION_VERSION = "1.6.1"
 DIAGNOSTICS_SCHEMA_VERSION = 4
 SETTINGS_SCHEMA_VERSION = 4
 LOGGER = logging.getLogger(__package__)
@@ -68,6 +68,8 @@ CONF_DAWN_MONTH_END = "dawn_month_end"
 CONF_DAWN_DURATION = "dawn_duration"
 CONF_COLD_THRESHOLD = "cold_threshold"
 CONF_WIND_THRESHOLD = "wind_threshold"
+CONF_WIND_CONFIRMATION_SAMPLES = "wind_confirmation_samples"
+MAX_WIND_CONFIRMATION_SAMPLES = 5
 CONF_PURGE_POS = "purge_pos"
 CONF_WORKDAY_ENTITY = "workday_entity"
 CONF_START_TIME_WORKDAY = "start_time_workday"

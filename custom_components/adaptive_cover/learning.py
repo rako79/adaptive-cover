@@ -15,6 +15,26 @@ LEARNING_GUARD_VERSION = 4
 LEARNING_GUARD_RESET_REASON = "temperature_source_guard_upgrade"
 POSITION_BIAS_LIMIT = 25.0
 TEMPERATURE_OFFSET_LIMIT = 3.0
+MIN_LEARNABLE_POSITION_DELTA = 2.0
+MAX_LEARNABLE_POSITION_DELTA = 30.0
+
+
+def _aware(value: str) -> datetime:
+    """Odczytaj zapisany czas jako świadomy strefy (UTC dla starszych zapisów)."""
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _manual_overrides(raw: Any) -> dict[str, tuple[datetime, datetime]]:
+    """Odczytaj przejęcia, pomijając błędne wpisy zamiast kasować całą naukę."""
+    result = {}
+    for entity, value in (raw if isinstance(raw, dict) else {}).items():
+        try:
+            since, until = value
+            result[str(entity)] = (_aware(since), _aware(until))
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _bounded_offsets(values: dict, limit: float) -> dict[str, float]:
@@ -48,6 +68,8 @@ class BehavioralLearner:
         self.last_guard_reset_at: datetime | None = None
         self.guard_reset_reason: str | None = None
         self._last_direct_sun_saved_at: datetime | None = None
+        # Ręczne przejęcia: encja -> (od, do); przetrwają restart i przeładowanie.
+        self.manual_overrides: dict[str, tuple[datetime, datetime]] = {}
         self._store = Store(
             hass,
             STORAGE_VERSION,
@@ -106,6 +128,7 @@ class BehavioralLearner:
             if self.last_direct_sun_at and self.last_direct_sun_at.tzinfo is None:
                 self.last_direct_sun_at = self.last_direct_sun_at.replace(tzinfo=UTC)
             self._last_direct_sun_saved_at = self.last_direct_sun_at
+            self.manual_overrides = _manual_overrides(data.get("manual_overrides"))
             self.loaded = True
             self.last_load_at = datetime.now(UTC)
             self.last_load_error = None
@@ -127,6 +150,9 @@ class BehavioralLearner:
             self.last_direct_sun_at = None
             self.last_guard_reset_at = None
             self._last_direct_sun_saved_at = None
+            self.manual_overrides = {}
+            # Uszkodzone dane i tak są stracone; pozwól zapisać nowe.
+            self.loaded = True
 
     def remember_direct_sun(self, timestamp: datetime, *, force: bool = False) -> None:
         """Persist recent direct-sun activity with bounded write frequency."""
@@ -152,7 +178,27 @@ class BehavioralLearner:
     ) -> None:
         """Update learned offsets after a verified manual position change."""
         position_delta = float(new_position) - float(our_state)
-        if abs(position_delta) < 2:
+        if abs(position_delta) < MIN_LEARNABLE_POSITION_DELTA:
+            return
+
+        if abs(position_delta) > MAX_LEARNABLE_POSITION_DELTA:
+            # Duże ruchy służą zwykle chwilowej scenie, np. uruchomieniu projekcji.
+            self.last_override = {
+                "timestamp": datetime.now(UTC),
+                "entity_id": entity_id,
+                "calculated_position": our_state,
+                "manual_position": new_position,
+                "position_delta": position_delta,
+                "temperature": current_temp,
+                "is_summer": is_summer,
+                "learned": False,
+                "ignore_reason": "position_delta_too_large",
+            }
+            self.logger.info(
+                "Ignored manual override for %s: %.1f%% exceeds learnable range",
+                entity_id,
+                abs(position_delta),
+            )
             return
 
         old_bias = self.position_biases.get(entity_id, 0.0)
@@ -171,6 +217,7 @@ class BehavioralLearner:
             "position_delta": position_delta,
             "temperature": current_temp,
             "is_summer": is_summer,
+            "learned": True,
         }
 
         if current_temp is not None:
@@ -230,7 +277,20 @@ class BehavioralLearner:
                 else None
             ),
             "last_guard_reset_reason": self.guard_reset_reason,
+            "manual_overrides": {
+                entity: [since.isoformat(), until.isoformat()]
+                for entity, (since, until) in self.manual_overrides.items()
+            },
         }
+
+    def remember_manual_overrides(
+        self, overrides: dict[str, tuple[datetime, datetime]]
+    ) -> None:
+        """Zapisz aktywne ręczne przejęcia, jeśli się zmieniły."""
+        if overrides == self.manual_overrides:
+            return
+        self.manual_overrides = dict(overrides)
+        self._schedule_save()
 
     def diagnostics(self) -> dict[str, Any]:
         """Return JSON-safe learning diagnostics."""
@@ -243,7 +303,15 @@ class BehavioralLearner:
             "guard_reset_reason": self.guard_reset_reason,
         }
 
+    async def async_flush(self) -> None:
+        """Zapisz stan od razu przy wyładowaniu wpisu, przed jego ponownym wczytaniem."""
+        if self.loaded:
+            await self._store.async_save(self._storage_payload())
+
     def _schedule_save(self) -> None:
         """Coalesce frequent overrides into one storage write."""
+        if not self.loaded:
+            # Plik nie został odczytany (błąd dysku): zapis nadpisałby całą naukę.
+            return
         self.last_save_scheduled_at = datetime.now(UTC)
         self._store.async_delay_save(self._storage_payload, 1)

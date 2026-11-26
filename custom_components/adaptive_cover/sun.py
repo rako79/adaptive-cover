@@ -1,10 +1,9 @@
 """Fetch sun data."""
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
-import pandas as pd
 from astral import Observer
-from astral.sun import azimuth, elevation, sunrise, sunset
+from astral.sun import sunrise, sunset
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
@@ -30,25 +29,22 @@ class SunData:
         self.timezone = timezone
 
     @property
-    def times(self) -> pd.DatetimeIndex:
-        """Define time interval."""
-        start_date = dt_util.now().date()
-        end_date = start_date + timedelta(days=1)
-
-        times = pd.date_range(
-            start=start_date, end=end_date, freq="5min", tz=self.timezone, name="time"
+    def times(self) -> list[datetime]:
+        """Zwróć chwile co 5 minut od lokalnej północy do kolejnej (z obiema)."""
+        tz = (
+            dt_util.get_time_zone(self.timezone)
+            if isinstance(self.timezone, str)
+            else self.timezone
         )
-        return times
-
-    @property
-    def solar_azimuth(self) -> list:
-        """Create list with solar azimuth data per 5 minutes."""
-        return [azimuth(self.observer, moment) for moment in self.times]
-
-    @property
-    def solar_elevation(self) -> list:
-        """Create list with solar elevation data per 5 minutes."""
-        return [elevation(self.observer, moment) for moment in self.times]
+        today = dt_util.now().date()
+        # Krok w UTC: doba zmiany czasu ma 23 lub 25 godzin, jak w pandas.date_range.
+        moment = datetime.combine(today, time(), tzinfo=tz).astimezone(UTC)
+        end = datetime.combine(today + timedelta(days=1), time(), tzinfo=tz)
+        result = []
+        while moment <= end:
+            result.append(moment.astimezone(tz))
+            moment += timedelta(minutes=5)
+        return result
 
     def sunset(self, on_date: date | None = None) -> datetime:
         """Fetch sunset time."""
@@ -57,9 +53,3 @@ class SunData:
     def sunrise(self, on_date: date | None = None) -> datetime:
         """Fetch sunrise time."""
         return sunrise(self.observer, on_date or dt_util.now().date())
-
-    # def df_today(self)-> pd.DataFrame:
-    #     """Create dataframe with azimuth and elevation data"""
-    #     df_today = pd.DataFrame({"azimuth":self.solar_azimuth, "elevation":self.solar_elevation})
-    #     df_today = df_today.set_index(self.times)
-    #     return df_today

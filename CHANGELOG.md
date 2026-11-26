@@ -2,9 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.1] - 2026-11-26
+
+### Dodane
+- [Dodane] Ochrona przed wiatrem może wymagać od 1 do 5 kolejnych raportów dedykowanego czujnika powyżej progu. Diagnostyka pokazuje liczbę potwierdzeń, a domyślna wartość 1 zachowuje natychmiastową reakcję.
+
+### Naprawione
+- [Naprawione] Ręczne przejęcie rolety przetrwa restart Home Assistant i przeładowanie wpisu (np. po zmianie godziny lub offsetu z panelu); wcześniej było zapominane i roleta wracała na pozycję automatyki.
+- [Naprawione] Polecenie do rolety i pobranie prognozy mają limit czasu (30 s i 10 s). Zawieszona lub zgłaszająca nietypowy błąd integracja rolety nie blokuje już automatyki pozostałych rolet ani ochrony przed wiatrem i deszczem.
+- [Naprawione] Chwilowy błąd odczytu pliku uczenia przy starcie nie powoduje już nadpisania wyuczonych preferencji pustymi danymi.
+- [Zmienione] Integracja nie wymaga już biblioteki pandas; zakres słońca w oknie liczy zwykła pętla (ten sam wynik, także w dni zmiany czasu).
+- [Zmienione] Odtwarzanie stanu przełączników przy starcie nie uruchamia osobnego przeliczenia dla każdego z nich (2 zamiast około 6 przeliczeń na wpis); encje od razu pokazują wynik z odtworzonymi przełącznikami.
+- [Zmienione] Testy regresji koordynatora sprawdzają zachowanie zamiast tekstu kodu źródłowego.
+- [Zmienione] Usunięto nieużywany kod (około 100 linii) w koordynatorze, geometrii i danych słonecznych.
+- [Naprawione] Zaległe zamknięcie z harmonogramu poprawnie wygasa przy harmonogramie przez północ (np. 20:00–06:00).
+- [Naprawione] Po przeładowaniu otwieranie nie czeka na nowy raport wiatromierza, jeśli jego bieżący odczyt jest spokojny (czujniki, które nie powtarzają niezmienionej wartości).
+- [Naprawione] Ręczne przejęcie jest zapisywane od razu przy wyładowaniu wpisu, więc zmiana ustawienia z panelu tuż po ruchu rolety go nie gubi. Błędny wpis przejęcia w pliku jest pomijany i nie kasuje wyuczonych preferencji.
+- [Naprawione] Bez wiatromierza chwilowa niedostępność encji pogody nie zwalnia ochrony przed wiatrem: obowiązuje ostatni znany odczyt.
+- [Zmienione] Usunięto nieużywany i od dawna niedziałający notatnik `notebooks/test_env.ipynb`.
+- [Naprawione] Utrata odczytu dedykowanego wiatromierza nie zwalnia już aktywnej ochrony przed wiatrem także przy domyślnej wartości 1 (wcześniej brak danych liczono jako 0 km/h).
+- [Naprawione] Przy potwierdzaniu wiatru po restarcie i utracie czujnika nie są wykonywane polecenia otwarcia do czasu spokojnego odczytu. Brak danych o położeniu słońca lub brak opcjonalnej encji pogody nie przerywa ochrony pogodowej.
+- [Naprawione] Tryb testowy anuluje wcześniejsze ponowienia, niedostępny kontaktron blokuje ruch (z wyjątkiem ochrony przed deszczem i wiatrem), a blokada zamykania uwzględnia odwrócenie napędu.
+- [Naprawione] Zamknięcie z harmonogramu pozostaje do wykonania po ustąpieniu blokady, ale tylko poza oknem harmonogramu; w oknie (np. koniec wietrzenia po starcie 00:00) sterowanie dzienne przejmuje roletę od razu. Pozycje krańcowe i harmonogram korzystają z tych samych ustawień interpolacji; krańce zakresu interpolacji nadal oznaczają pełne zamknięcie i otwarcie, także przy odwróconej liście (wcześniej odwrócona lista zamieniała kierunek w skrajnych pozycjach).
+- [Naprawione] Ponowienie czeka na wygaśnięcie limitów bez zużywania próby (poza limitem dobowym, który kończy ponawianie). Ręczne przejęcie nie blokuje ponowienia aktualnej decyzji awaryjnej.
+
 ## [Unreleased] - 2026-09-21
 
 ### Naprawione
+- [Naprawione] BehavioralLearner nie uznaje już ręcznej zmiany większej niż 30 punktów procentowych za preferencję komfortu. Pełne zamknięcie do projekcji nie obniży przyszłego celu automatyki; diagnostyka zapisuje powód pominięcia.
 - [Naprawione] Chłodniejsze powietrze zewnętrzne o skonfigurowaną przewagę chłodzenia zwalnia ochronę termiczną oraz ścisłą blokadę słońca, również przy bezpośrednim słońcu. Krótkie otwarcie po takim domknięciu omija tylko odstęp czasowy i cooldown; nadal respektuje limity godzinowe i dobowe, ręczne przejęcie oraz politykę otwartego okna.
 - [Naprawione] Identyczne polecenia podczas oczekiwania na ruch nie są powielane; wywołania dla jednej rolety oraz cykle koordynatora są serializowane.
 - [Naprawione] Nieaktualne retry jest anulowane również podczas blokady nowego celu przez limity. Weryfikacja następuje po 45 sekundach lub potwierdzeniu napędu, a ostatnie ponowienie jest sprawdzane przed zgłoszeniem niepowodzenia.

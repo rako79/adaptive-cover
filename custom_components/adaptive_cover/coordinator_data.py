@@ -7,6 +7,7 @@ from math import isfinite
 import datetime as dt
 
 import numpy as np
+from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
 from .climate import ClimateCoverData, ClimateCoverState
@@ -110,10 +111,12 @@ from .const import (
 )
 
 
-def state_attr(hass, entity_id: str, attr_name: str):
+def state_attr(hass, entity_id: str | None, attr_name: str):
     """Zwróć bezpiecznie atrybut stanu Home Assistant."""
-    state = hass.states.get(entity_id)
-    return state.attributes.get(attr_name) if state is not None else None
+    state = hass.states.get(entity_id) if entity_id else None
+    if state is None or state.state in {"unknown", "unavailable"}:
+        return None
+    return state.attributes.get(attr_name)
 
 
 def _as_float(value, default=None):
@@ -159,7 +162,8 @@ class CoordinatorDataMixin:
 
     def _update_manager_and_covers(self):
         self.manager.add_covers(self.entities)
-        if not self._manual_toggle:
+        # None = przełącznik jeszcze nieodtworzony; nie kasuj przywróconych przejęć.
+        if self._manual_toggle is False:
             for entity in self.manager.manual_controlled:
                 self.manager.reset(entity)
 
@@ -309,6 +313,23 @@ class CoordinatorDataMixin:
                 return True
         return False
 
+    @property
+    def window_state_unknown(self) -> bool:
+        """Rozróżnij brak kontaktronu w konfiguracji od utraty jego odczytu."""
+        return bool(
+            self.window_entity
+            and get_safe_state(self.hass, self.window_entity) not in {"on", "off"}
+        )
+
+    @property
+    def wind_opening_unconfirmed(self) -> bool:
+        """Wstrzymaj otwieranie do rozstrzygnięcia stanu wiatru."""
+        return bool(
+            self._switch_mode
+            and self._wind_confirmation
+            and self._wind_confirmation.blocks_opening
+        )
+
     def check_position_delta(self, entity, state: int, options):
         """Check cover positions to reduce calls."""
         position = self._get_current_position(entity)
@@ -349,8 +370,8 @@ class CoordinatorDataMixin:
     def pos_sun(self):
         """Fetch information for sun position."""
         return [
-            state_attr(self.hass, "sun.sun", "azimuth"),
-            state_attr(self.hass, "sun.sun", "elevation"),
+            _as_float(state_attr(self.hass, "sun.sun", "azimuth")),
+            _as_float(state_attr(self.hass, "sun.sun", "elevation")),
         ]
 
     def common_data(self, options):
@@ -450,15 +471,22 @@ class CoordinatorDataMixin:
         wind_entity = options.get(CONF_WIND_ENTITY)
         weather_entity = options.get(CONF_WEATHER_ENTITY)
         if wind_entity:
-            value = _as_float(get_safe_state(self.hass, wind_entity), 0.0)
-            unit = state_attr(self.hass, wind_entity, "unit_of_measurement")
-        else:
-            value = _as_float(
-                state_attr(self.hass, weather_entity, "wind_speed"),
-                0.0,
-            )
-            unit = state_attr(self.hass, weather_entity, "wind_speed_unit")
-        return wind_speed_to_kmh(value or 0.0, unit)
+            return self._wind_sensor_speed(self.hass.states.get(wind_entity)) or 0.0
+        value = _as_float(state_attr(self.hass, weather_entity, "wind_speed"))
+        if value is None:
+            # Awaria pogody w czasie wichury nie może zwolnić ochrony: trzymaj ostatni odczyt.
+            return self._last_weather_wind_kmh
+        unit = state_attr(self.hass, weather_entity, "wind_speed_unit")
+        self._last_weather_wind_kmh = wind_speed_to_kmh(value, unit)
+        return self._last_weather_wind_kmh
+
+    @staticmethod
+    def _wind_sensor_speed(state: State | None) -> float | None:
+        """Odróżnij brak pomiaru od prawidłowego odczytu 0 km/h."""
+        value = _as_float(state.state) if state is not None else None
+        if value is None or value < 0:
+            return None
+        return wind_speed_to_kmh(value, state.attributes.get("unit_of_measurement"))
 
     def _update_light_snapshots(self, options) -> None:
         """Odśwież oba stabilne stany światła z jednego zestawu wartości."""
@@ -562,6 +590,8 @@ class CoordinatorDataMixin:
         weather_entity = options.get(CONF_WEATHER_ENTITY)
         rain_entity = options.get(CONF_RAIN_ENTITY)
         rain_state = self.hass.states.get(rain_entity) if rain_entity else None
+        wind_confirmation = self._wind_confirmation
+        sun_state = get_safe_state(self.hass, "sun.sun")
         return ClimateCoverData(
             logger=self.logger,
             now=dt_util.as_local(cover_data.snapshot_time),
@@ -586,8 +616,20 @@ class CoordinatorDataMixin:
             rain_sensor_available=bool(
                 rain_state and rain_state.state not in {"unknown", "unavailable"}
             ),
-            sun_above_horizon=get_safe_state(self.hass, "sun.sun") == "above_horizon",
+            sun_above_horizon=(
+                sun_state == "above_horizon"
+                if sun_state in {"above_horizon", "below_horizon"}
+                else cover_data.sunrise_at <= cover_data.snapshot_time < cover_data.sunset_at
+            ),
             wind_speed_kmh=self._wind_snapshot(options),
+            wind_confirmation_samples=(
+                wind_confirmation.samples_at(dt_util.utcnow())
+                if wind_confirmation is not None
+                else None
+            ),
+            wind_confirmation_required=(
+                wind_confirmation.required_samples if wind_confirmation else 1
+            ),
             lux_value=_as_float(
                 get_safe_state(self.hass, options.get(CONF_LUX_ENTITY))
             ),
@@ -693,12 +735,16 @@ class CoordinatorDataMixin:
         else:
             state = self.default_state
 
+        return self.motor_position(state)
+
+    def motor_position(self, state: int | float) -> int:
+        """Przelicz pozycję logiczną na procent raportowany przez napęd."""
         if self._use_interpolation:
             self.logger.debug("Interpolating position: %s", state)
             state = self.interpolate_states(state)
 
         if self._inverse_state and self._use_interpolation:
-            self.logger.info(
+            self.logger.debug(
                 "Inverse state is not supported with interpolation, you can inverse the state by arranging the list from high to low"
             )
 
@@ -715,6 +761,11 @@ class CoordinatorDataMixin:
         self.logger.debug("Final position to use: %s", state)
         return state
 
+    @property
+    def reversed_motor_position(self) -> bool:
+        """Rozpoznaj odwrócenie kierunku także przy malejącej interpolacji."""
+        return self.motor_position(0) > self.motor_position(100)
+
     def interpolate_states(self, state):
         """Interpolate states."""
         normal_range = [0, 100]
@@ -726,10 +777,12 @@ class CoordinatorDataMixin:
             new_range = list(map(int, self.new_list))
         if new_range:
             state = np.interp(state, normal_range, new_range)
+            # Krańce zakresu oznaczają pełne zamknięcie/otwarcie, zgodnie z kierunkiem listy.
+            closed, opened = (0, 100) if new_range[0] <= new_range[-1] else (100, 0)
             if state == new_range[0]:
-                state = 0
-            if state == new_range[-1]:
-                state = 100
+                state = closed
+            elif state == new_range[-1]:
+                state = opened
         return state
 
     @property

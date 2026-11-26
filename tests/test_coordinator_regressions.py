@@ -1,248 +1,185 @@
-"""Testy regresyjne struktury koordynatora niewymagające instalacji Home Assistant."""
+"""Regresje koordynatora sprawdzane przez zachowanie, a nie tekst źródła."""
 
-import ast
-from pathlib import Path
-import unittest
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+from zoneinfo import ZoneInfo
 
-ROOT = Path(__file__).parents[1]
-COORDINATOR_PATH = ROOT / "custom_components" / "adaptive_cover" / "coordinator.py"
-INIT_PATH = ROOT / "custom_components" / "adaptive_cover" / "__init__.py"
-SWITCH_PATH = ROOT / "custom_components" / "adaptive_cover" / "switch.py"
-CLIMATE_PATH = ROOT / "custom_components" / "adaptive_cover" / "climate.py"
-MANUAL_CONTROL_PATH = (
-    ROOT / "custom_components" / "adaptive_cover" / "manual_control.py"
-)
-COORDINATOR_DATA_PATH = (
-    ROOT / "custom_components" / "adaptive_cover" / "coordinator_data.py"
-)
-COORDINATOR_EVENTS_PATH = (
-    ROOT / "custom_components" / "adaptive_cover" / "coordinator_events.py"
-)
-COORDINATOR_EXECUTION_PATH = (
-    ROOT / "custom_components" / "adaptive_cover" / "coordinator_execution.py"
-)
-COORDINATOR_PIPELINE_PATH = (
-    ROOT / "custom_components" / "adaptive_cover" / "coordinator_pipeline.py"
-)
-SCHEDULE_PATH = ROOT / "custom_components" / "adaptive_cover" / "schedule.py"
-NUMBER_PATH = ROOT / "custom_components" / "adaptive_cover" / "number.py"
+from freezegun import freeze_time
+
+from custom_components.adaptive_cover.coordinator_data import CoordinatorDataMixin
+from custom_components.adaptive_cover.coordinator_events import CoordinatorEventsMixin
+from custom_components.adaptive_cover.decision import DecisionResult
+from custom_components.adaptive_cover.manual_control import AdaptiveCoverManager
+from custom_components.adaptive_cover.models import PendingRefreshes, RefreshTrigger
+from custom_components.adaptive_cover.schedule import ScheduleResolver
+from custom_components.adaptive_cover.switch import AdaptiveCoverSwitch
+from fakes import FakeState
+from test_automation_audit import AuditCoordinator
 
 
-def function_named(tree: ast.AST, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
-    """Return one named function from a parsed module."""
-    return next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == name
+async def test_night_purge_deadline_requests_fresh_decision_without_moving():
+    """Timer końca wietrzenia nie wysyła pozycji sam, tylko zleca pełne odświeżenie."""
+    owner = SimpleNamespace(
+        schedule_controller=Mock(),
+        _pending_refreshes=PendingRefreshes(),
+        async_refresh=AsyncMock(),
+        _schedule_night_purge_close=Mock(),
+        movement=Mock(),
     )
 
+    await CoordinatorEventsMixin.async_close_after_night_purge(owner, None)
 
-class SunsetOffsetEntityTests(unittest.TestCase):
-    """Pilnuj dostępności suwaka przesunięcia zachodu dla istniejących wpisów."""
-
-    def test_offset_entity_is_always_loaded(self) -> None:
-        """Nie pozostawiaj encji jako niedostępnej przy ustawionym end_time."""
-        setup = function_named(
-            ast.parse(NUMBER_PATH.read_text(encoding="utf-8")),
-            "async_setup_entry",
-        )
-        add_calls = [
-            node
-            for node in ast.walk(setup)
-            if isinstance(node, ast.Call)
-            and ast.unparse(node.func) == "async_add_entities"
-        ]
-
-        self.assertEqual(1, len(add_calls))
-        self.assertFalse(any(isinstance(node, ast.If) for node in ast.walk(setup)))
+    assert owner._pending_refreshes.contains(RefreshTrigger.NIGHT_PURGE_DEADLINE)
+    owner.async_refresh.assert_awaited_once()
+    owner.movement.async_set_position.assert_not_called()
 
 
-class NightPurgeDeadlineTests(unittest.TestCase):
-    """Pilnuj świeżej decyzji przy końcu nocnego wietrzenia."""
+async def test_first_refresh_catches_up_missed_night_purge_deadline():
+    """Restart po terminie wietrzenia wykonuje zaległe zamknięcie."""
+    coordinator = AuditCoordinator()
+    coordinator._night_purge_close_overdue = lambda: True
+    coordinator.async_handle_timed_refresh = AsyncMock()
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        """Wczytaj strukturę kodu bez importowania zależności Home Assistant."""
-        cls.events_tree = ast.parse(COORDINATOR_EVENTS_PATH.read_text(encoding="utf-8"))
-        cls.execution_tree = ast.parse(
-            COORDINATOR_EXECUTION_PATH.read_text(encoding="utf-8")
-        )
-        cls.pipeline_tree = ast.parse(
-            COORDINATOR_PIPELINE_PATH.read_text(encoding="utf-8")
-        )
-        cls.schedule_tree = ast.parse(SCHEDULE_PATH.read_text(encoding="utf-8"))
-        cls.callback = function_named(
-            cls.events_tree,
-            "async_close_after_night_purge",
-        )
+    await coordinator.async_handle_first_refresh(0, {})
 
-    def test_deadline_never_sends_a_position_directly(self) -> None:
-        """Nie pozwalaj timerowi omijać aktualnej decyzji bezpieczeństwa."""
-        calls = [
-            node
-            for node in ast.walk(self.callback)
-            if isinstance(node, ast.Call) and "set_position" in ast.unparse(node.func)
-        ]
+    coordinator.async_handle_timed_refresh.assert_awaited_once_with(0, {})
 
-        self.assertEqual([], calls)
 
-    def test_deadline_requests_fresh_arbitration(self) -> None:
-        """Oznacz przyczynę i wykonaj pełne odświeżenie koordynatora."""
-        calls = {
-            ast.unparse(node.func)
-            for node in ast.walk(self.callback)
-            if isinstance(node, ast.Call)
+async def test_no_physical_movement_before_runtime_initialization():
+    """Zdarzenia z rozruchu HA nie mogą poruszyć rolety."""
+    coordinator = AuditCoordinator()
+    coordinator._runtime_initialized = False
+
+    await coordinator.async_handle_call_service("cover.room", 100, {})
+
+    assert not coordinator.hass.services.calls
+    assert coordinator.manager.status_reason["cover.room"] == "runtime_initializing"
+
+
+async def test_intermediate_cover_state_is_ignored_before_refresh():
+    """Stan „opening” nie uruchamia rozpoznawania ręcznego ruchu."""
+    owner = SimpleNamespace(
+        logger=Mock(),
+        ignore_intermediate_states=True,
+        _pending_cover_events=[],
+        _pending_refreshes=PendingRefreshes(),
+        async_refresh=AsyncMock(),
+    )
+    event = SimpleNamespace(
+        data={
+            "entity_id": "cover.room",
+            "old_state": FakeState("open", {"current_position": 100}),
+            "new_state": FakeState("opening", {"current_position": 60}),
         }
-        callback_source = ast.unparse(self.callback)
+    )
 
-        self.assertIn("self._pending_refreshes.add", calls)
-        self.assertIn("await self.async_refresh()", callback_source)
-        self.assertIn("RefreshTrigger.NIGHT_PURGE_DEADLINE", callback_source)
+    await CoordinatorEventsMixin.async_check_cover_state_change(owner, event)
 
-    def test_first_refresh_catches_up_missed_deadline(self) -> None:
-        """Użyj świeżego celu także po restarcie wykonanym po terminie."""
-        handler = function_named(
-            self.execution_tree,
-            "async_handle_first_refresh",
+    owner.async_refresh.assert_not_awaited()
+    assert not owner._pending_cover_events
+
+
+def test_emergency_decision_bypasses_manual_override_and_limits():
+    """Deszcz i wiatr ignorują ręczne przejęcie i cooldown; komfort nie."""
+    coordinator = AuditCoordinator()
+    coordinator.current_position = 100
+    coordinator.manager.mark_manual_control("cover.room")
+    coordinator.manager.movement_history["cover.room"] = [datetime.now(UTC)]
+
+    coordinator.last_decision = DecisionResult(0, "rain_detected", "deszcz", 100)
+    assert coordinator.movement_block_reason("cover.room", 0, {}) is None
+
+    coordinator.last_decision = DecisionResult(0, "auto", "komfort", 10)
+    assert coordinator.movement_block_reason("cover.room", 0, {}) is not None
+
+
+async def test_manual_override_uses_absolute_deadline():
+    """Skrócenie czasu przejęcia nie kończy już trwającego przed terminem."""
+    manager = AdaptiveCoverManager({"minutes": 120}, Mock())
+    manager.add_covers(["cover.room"])
+    with freeze_time("2026-11-26 12:00:00"):
+        manager.mark_manual_control("cover.room")
+        manager.set_last_updated(
+            "cover.room", SimpleNamespace(last_updated=datetime.now(UTC)), True
         )
-        calls = {
-            ast.unparse(node.func)
-            for node in ast.walk(handler)
-            if isinstance(node, ast.Call)
-        }
-        self.assertIn("self._night_purge_close_overdue", calls)
-        self.assertIn("self.async_handle_timed_refresh", calls)
+    manager.reset_duration = timedelta(minutes=30)
+
+    with freeze_time("2026-11-26 13:00:00"):
+        await manager.reset_if_needed()
+    assert manager.is_cover_manual("cover.room")
+    with freeze_time("2026-11-26 14:00:01"):
+        await manager.reset_if_needed()
+    assert not manager.is_cover_manual("cover.room")
 
 
-class CoordinatorExecutionTests(unittest.TestCase):
-    """Guard coordinator execution ordering and gating rules."""
+def test_weather_wind_outage_keeps_last_reading():
+    """Niedostępna encja pogody nie zamienia wichury na 0 km/h."""
+    states = {}
+    owner = SimpleNamespace(
+        hass=SimpleNamespace(states=SimpleNamespace(get=states.get)),
+        _last_weather_wind_kmh=0.0,
+    )
+    options = {"weather_entity": "weather.home"}
+    readings = (
+        (FakeState("windy", {"wind_speed": 80, "wind_speed_unit": "km/h"}), 80),
+        (FakeState("unavailable", {}), 80),
+        (FakeState("sunny", {"wind_speed": 10, "wind_speed_unit": "km/h"}), 10),
+    )
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        """Parse runtime modules without importing Home Assistant."""
-        cls.source = COORDINATOR_PATH.read_text(encoding="utf-8")
-        cls.tree = ast.parse(cls.source)
-        cls.init_tree = ast.parse(INIT_PATH.read_text(encoding="utf-8"))
-        cls.switch_tree = ast.parse(SWITCH_PATH.read_text(encoding="utf-8"))
-        cls.data_tree = ast.parse(COORDINATOR_DATA_PATH.read_text(encoding="utf-8"))
-        cls.events_tree = ast.parse(COORDINATOR_EVENTS_PATH.read_text(encoding="utf-8"))
-        cls.execution_tree = ast.parse(
-            COORDINATOR_EXECUTION_PATH.read_text(encoding="utf-8")
-        )
-        cls.pipeline_tree = ast.parse(
-            COORDINATOR_PIPELINE_PATH.read_text(encoding="utf-8")
-        )
-        cls.schedule_tree = ast.parse(SCHEDULE_PATH.read_text(encoding="utf-8"))
-        cls.climate_tree = ast.parse(CLIMATE_PATH.read_text(encoding="utf-8"))
-        cls.manual_control_tree = ast.parse(
-            MANUAL_CONTROL_PATH.read_text(encoding="utf-8")
-        )
-
-    def test_restore_entities_before_first_automation_pass(self) -> None:
-        """Do not consume first refresh before RestoreEntity switches are loaded."""
-        setup = function_named(self.init_tree, "async_setup_entry")
-        calls = [
-            (ast.unparse(node.func), node.lineno)
-            for node in ast.walk(setup)
-            if isinstance(node, ast.Call)
-        ]
-        forward_line = next(
-            line for name, line in calls if name.endswith("async_forward_entry_setups")
-        )
-        initialized_line = next(
-            line
-            for name, line in calls
-            if name.endswith("schedule_runtime_initialization")
-        )
-        self.assertLess(forward_line, initialized_line)
-
-    def test_started_helper_cannot_miss_runtime_initialization(self) -> None:
-        """Use the HA helper that handles both startup and integration reload."""
-        setup = ast.unparse(function_named(self.init_tree, "async_setup_entry"))
-        self.assertIn("async_at_started", setup)
-        self.assertNotIn("async_listen_once", setup)
-
-    def test_startup_events_cannot_issue_physical_movement(self) -> None:
-        """Calculate during startup but execute handlers only after stabilization."""
-        update = ast.unparse(
-            function_named(self.pipeline_tree, "_execute_pending_events")
-        )
-        service = ast.unparse(
-            function_named(self.execution_tree, "async_handle_call_service")
-        )
-        self.assertIn("self._runtime_initialized", update)
-        self.assertIn("if not self._runtime_initialized", service)
-        self.assertIn("runtime_initializing", service)
-
-    def test_strict_sun_requires_numeric_sensor_value(self) -> None:
-        """Do not interpret unavailable irradiance as strong sunlight."""
-        climate_state = next(
-            node
-            for node in ast.walk(self.climate_tree)
-            if isinstance(node, ast.ClassDef) and node.name == "ClimateCoverState"
-        )
-        body = ast.unparse(climate_state)
-        self.assertIn("numeric_value_above_threshold", body)
-        self.assertIn("sensor_value", body)
-
-    def test_intermediate_cover_states_return_before_refresh(self) -> None:
-        """Ensure ignored motor states cannot trigger manual-override processing."""
-        handler = function_named(
-            self.events_tree,
-            "async_check_cover_state_change",
-        )
-        ignored_if = next(
-            node
-            for node in handler.body
-            if isinstance(node, ast.If)
-            and "ignore_intermediate_states" in ast.unparse(node.test)
-        )
-        self.assertTrue(any(isinstance(node, ast.Return) for node in ignored_if.body))
-
-    def test_emergency_decisions_bypass_generic_limits(self) -> None:
-        """Keep rain and wind movement independent from cooldown and manual mode."""
-        handler = function_named(self.execution_tree, "movement_block_reason")
-        body = ast.unparse(handler)
-        self.assertIn("EMERGENCY_DECISION_CODES", body)
-        self.assertIn("SCHEDULE_EXEMPT_DECISION_CODES", body)
-        self.assertIn("not emergency and self.manager.is_cover_manual", body)
-        self.assertIn("not emergency and (not self.manager.can_move", body)
-
-    def test_timed_refresh_preserves_physical_position_limits(self) -> None:
-        """Koniec harmonogramu nie może ominąć min/max ustawionych dla napędu."""
-        handler = ast.unparse(function_named(self.pipeline_tree, "_finalize_decision"))
-        self.assertIn("DecisionArbiter.constrain_position", handler)
-
-    def test_manual_override_uses_absolute_deadline(self) -> None:
-        """Prevent a shrinking relative duration from resetting at half-time."""
-        manager_source = MANUAL_CONTROL_PATH.read_text(encoding="utf-8")
-        self.assertIn("manual_control_until", manager_source)
-        reset = ast.unparse(function_named(self.manual_control_tree, "reset_if_needed"))
-        self.assertIn("current_time >= deadline", reset)
-
-    def test_zero_is_valid_interpolation_endpoint(self) -> None:
-        """Allow the normal 0-100 mapping to start at zero."""
-        interpolation = ast.unparse(
-            function_named(self.data_tree, "interpolate_states")
-        )
-        self.assertIn("self.start_value is not None", interpolation)
-
-    def test_universal_schedule_uses_universal_option(self) -> None:
-        """Use start_time when no Workday entity is configured."""
-        resolver = ast.unparse(
-            function_named(self.schedule_tree, "_configured_start_source")
-        )
-        self.assertIn("explicit_start_time", resolver)
-        self.assertIn("{'on', 'off'}", resolver)
-
-    def test_control_switch_uses_shared_movement_gates(self) -> None:
-        """Do not reintroduce schedule or manual gates before safety decisions."""
-        turn_on = ast.unparse(function_named(self.switch_tree, "async_turn_on"))
-        self.assertIn("async_handle_call_service", turn_on)
-        self.assertNotIn("adaptive_movement_allowed", turn_on)
-        self.assertNotIn("is_cover_manual", turn_on)
+    for state, expected in readings:
+        states["weather.home"] = state
+        assert CoordinatorDataMixin._wind_snapshot(owner, options) == expected
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_zero_is_valid_interpolation_start():
+    """Początek zakresu 0 nie wyłącza interpolacji."""
+    data = SimpleNamespace(start_value=0, end_value=50, normal_list=None, new_list=None)
+
+    assert CoordinatorDataMixin.interpolate_states(data, 50) == 25
+
+
+def test_start_time_without_workday_entity_uses_universal_option():
+    """Bez encji Workday obowiązuje zwykły start; niedostępna encja daje fallback."""
+    zone = ZoneInfo("Europe/Warsaw")
+    resolver = ScheduleResolver(zone)
+    now = datetime(2026, 11, 26, 5, tzinfo=zone)
+    common = {
+        "local_now": now,
+        "start_entity_configured": False,
+        "start_entity_value": None,
+        "explicit_start_time": "08:00:00",
+        "workday_start_time": "07:00:00",
+        "weekend_start_time": "09:00:00",
+    }
+
+    universal = resolver.resolve_start(
+        workday_configured=False, workday_state=None, **common
+    )
+    unknown = resolver.resolve_start(
+        workday_configured=True, workday_state="unavailable", **common
+    )
+
+    assert (universal.source, universal.value.hour) == ("start_time", 8)
+    assert unknown.source == "workday_start"
+    assert unknown.fallback_reason == "workday_unavailable_assumed_on"
+
+
+async def test_control_switch_moves_covers_through_shared_gate():
+    """Włączenie automatyki używa tej samej bramki co zwykły ruch."""
+    coordinator = Mock(
+        entities=["cover.room"], state=40, _active_options={"x": 1}
+    )
+    coordinator.async_refresh = AsyncMock()
+    coordinator.async_handle_call_service = AsyncMock()
+    switch = SimpleNamespace(
+        coordinator=coordinator,
+        _key="control_toggle",
+        schedule_update_ha_state=Mock(),
+    )
+
+    await AdaptiveCoverSwitch.async_turn_on(switch)
+
+    coordinator.async_handle_call_service.assert_awaited_once_with(
+        "cover.room", 40, {"x": 1}
+    )

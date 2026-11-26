@@ -14,13 +14,21 @@ from homeassistant.const import (
     SERVICE_SET_COVER_POSITION,
     SERVICE_SET_COVER_TILT_POSITION,
 )
-from homeassistant.exceptions import HomeAssistantError
 
 from .const import ATTR_POSITION, ATTR_TILT_POSITION
-from .decision import EMERGENCY_DECISION_CODES, position_requires_move
+from .decision import (
+    EMERGENCY_DECISION_CODES,
+    SCHEDULE_EXEMPT_DECISION_CODES,
+    position_requires_move,
+)
 from .models import MovementOutcome, MovementResult
 
 COMMAND_ORIGIN_GRACE = dt.timedelta(minutes=2)
+SERVICE_CALL_TIMEOUT = 30
+# Limit dobowy celowo pomijamy: czekanie do północy trzymałoby zadanie godzinami.
+RETRY_LIMITS = frozenset(
+    {"time_delta_not_passed", "cooldown", "hourly_move_limit", "movement_limit"}
+)
 
 
 class MovementContext(Protocol):
@@ -39,6 +47,10 @@ class MovementContext(Protocol):
     control_toggle: bool
     dry_run_toggle: bool
     is_window_open: bool
+    window_state_unknown: bool
+    wind_opening_unconfirmed: bool
+    reversed_motor_position: bool
+    adaptive_movement_allowed: bool
     window_open_action: str
     window_open_position: int
     state: int
@@ -134,12 +146,11 @@ class CoverMovementExecutor:
         owner = self.context
         if (
             not owner.control_toggle
+            or owner.dry_run_toggle
             or self.target_for(entity) != target
-            or owner.manager.is_cover_manual(entity)
-            or (
-                owner.is_window_open
-                and owner.window_open_action in {"pause", "return_after_close"}
-            )
+            or self._manual_blocks_retry(entity)
+            or self.safety_block_reason(owner._get_current_position(entity), target)
+            is not None
         ):
             self._cancel_previous_verification(entity)
             self._finish_verification(
@@ -245,17 +256,10 @@ class CoverMovementExecutor:
         current = owner._get_current_position(entity)
         if current is not None and not isfinite(float(current)):
             current = None
-        if owner.is_window_open:
-            action = owner.window_open_action
-            if action in {"pause", "return_after_close"} or (
-                action == "block_closing_only"
-                and current is not None
-                and state < current
-            ):
-                owner.manager.set_status(entity, "blocked", "window_open")
-                return MovementResult(
-                    entity, state, MovementOutcome.BLOCKED, "window_open"
-                )
+        reason = self.safety_block_reason(current, state)
+        if reason is not None:
+            owner.manager.set_status(entity, "blocked", reason)
+            return MovementResult(entity, state, MovementOutcome.BLOCKED, reason)
         if current is not None and position_requires_move(
             current,
             state,
@@ -273,6 +277,45 @@ class CoverMovementExecutor:
         )
         owner.manager.set_status(entity, status, reason)
         return MovementResult(entity, state, outcome, reason)
+
+    def safety_block_reason(self, current: float | None, target: int) -> str | None:
+        """Stosuj te same zabezpieczenia przed pierwszym i ponowionym ruchem."""
+        owner = self.context
+        emergency = owner._decision_code() in EMERGENCY_DECISION_CODES
+        # Brak odczytu kontaktronu nie może wyłączyć ochrony przed wiatrem i deszczem.
+        if owner.window_state_unknown and not emergency:
+            return "window_state_unavailable"
+        reversed_position = (
+            owner.reversed_motor_position
+            if owner.is_window_open or owner.wind_opening_unconfirmed
+            else False
+        )
+        closing = current is not None and (
+            target > current if reversed_position else target < current
+        )
+        if owner.is_window_open:
+            action = owner.window_open_action
+            if action in {"pause", "return_after_close"}:
+                return "window_open"
+            if action == "block_closing_only" and (current is None or closing):
+                return "window_open_block_closing"
+            if action == "move_to_position" and owner._decision_code() == "window_open":
+                return None
+        if (
+            owner.wind_opening_unconfirmed
+            and not emergency
+            and (current is None or (target != current and not closing))
+        ):
+            return "wind_opening_blocked"
+        return None
+
+    def _manual_blocks_retry(self, entity: str) -> bool:
+        """Ręczne przejęcie nie blokuje aktualnej decyzji awaryjnej."""
+        owner = self.context
+        return (
+            owner._decision_code() not in EMERGENCY_DECISION_CODES
+            and owner.manager.is_cover_manual(entity)
+        )
 
     def _begin_command(
         self,
@@ -374,7 +417,7 @@ class CoverMovementExecutor:
         """Wyślij pierwsze polecenie i jawnie obsłuż błąd usługi."""
         try:
             await self._async_send_service(service, service_data)
-        except HomeAssistantError as err:
+        except Exception as err:  # noqa: BLE001 - błąd obcej integracji nie może przerwać cyklu
             self.wait_for_target[entity] = False
             self.last_command_at.pop(entity, None)
             self.context.manager.last_service_error[entity] = str(err)
@@ -493,35 +536,35 @@ class CoverMovementExecutor:
         """Sprawdź osiągnięcie celu i ponów aktualne polecenie."""
         try:
             for attempt in range(1, max_retries + 2):
-                await self._wait_before_verification(
-                    entity,
-                    generation,
-                    attempt,
-                    wait_time,
-                )
-                async with self._locks.setdefault(entity, asyncio.Lock()):
-                    outcome = self._verification_stop_reason(
+                delay = wait_time
+                while True:
+                    await self._wait_before_verification(
                         entity,
-                        target_state,
-                        generation,
-                        enforce_current_target,
-                    )
-                    if outcome is not None:
-                        self._finish_verification(entity, generation, outcome)
-                        return
-                    if attempt > max_retries:
-                        self._finish_verification(
-                            entity, generation, "target_not_reached"
-                        )
-                        return
-                    if not await self._send_retry(
-                        entity,
-                        service,
-                        service_data,
                         generation,
                         attempt,
-                    ):
-                        return
+                        delay,
+                    )
+                    async with self._locks.setdefault(entity, asyncio.Lock()):
+                        outcome = self._verification_stop_reason(
+                            entity, target_state, generation, enforce_current_target
+                        )
+                        if outcome in RETRY_LIMITS and attempt <= max_retries:
+                            # Tymczasowy limit nie zużywa próby ponowienia.
+                            delay = max(1, wait_time)
+                            continue
+                        if outcome is not None and outcome not in RETRY_LIMITS:
+                            self._finish_verification(entity, generation, outcome)
+                            return
+                        if attempt > max_retries:
+                            self._finish_verification(
+                                entity, generation, "target_not_reached"
+                            )
+                            return
+                        if not await self._send_retry(
+                            entity, service, service_data, generation, attempt
+                        ):
+                            return
+                        break
         except asyncio.CancelledError:
             if self.verify_tasks.get(entity) is asyncio.current_task():
                 self.update_metadata(
@@ -621,7 +664,7 @@ class CoverMovementExecutor:
         owner.manager.set_status(entity, "retrying", f"retry_{attempt}")
         try:
             await self._async_send_service(service, service_data)
-        except HomeAssistantError as err:
+        except Exception as err:  # noqa: BLE001 - błąd obcej integracji nie może przerwać cyklu
             owner.manager.last_service_error[entity] = str(err)
             owner.manager.set_status(entity, "blocked", "retry_service_failed")
             self.wait_for_target[entity] = False
@@ -680,8 +723,14 @@ class CoverMovementExecutor:
         if (
             owner._unloading
             or not owner.control_toggle
+            or owner.dry_run_toggle
             or self.command_generation.get(entity) != generation
-            or owner.manager.is_cover_manual(entity)
+            or self._manual_blocks_retry(entity)
+            or (
+                enforce_current_target
+                and owner._decision_code() not in SCHEDULE_EXEMPT_DECISION_CODES
+                and not owner.adaptive_movement_allowed
+            )
         ):
             return True
         decision = getattr(owner, "last_decision", None)
@@ -692,21 +741,13 @@ class CoverMovementExecutor:
             enforce_current_target or decision is not None
         ) and owner._target_for_entity(entity, current_target) != target_state:
             return True
-        if owner.is_window_open:
-            current = owner._get_current_position(entity)
-            action = owner.window_open_action
-            if action in {"pause", "return_after_close"}:
-                return True
-            if action == "move_to_position":
-                return target_state != owner._target_for_entity(
-                    entity, int(owner.window_open_position)
-                )
-            if (
-                action == "block_closing_only"
-                and current is not None
-                and target_state < current
-            ):
-                return True
+        current = owner._get_current_position(entity)
+        if self.safety_block_reason(current, target_state) is not None:
+            return True
+        if owner.is_window_open and owner.window_open_action == "move_to_position":
+            return target_state != owner._target_for_entity(
+                entity, int(owner.window_open_position)
+            )
         return False
 
     def _service_payload(self, entity: str, state: int) -> tuple[str, dict]:
@@ -720,9 +761,34 @@ class CoverMovementExecutor:
 
     async def _async_send_service(self, service: str, service_data: dict) -> None:
         """Wyślij jedno fizyczne polecenie do Home Assistant."""
-        await self.context.hass.services.async_call(
-            COVER_DOMAIN,
-            service,
-            service_data,
-            blocking=True,
+        call = self.context._create_background_task(
+            self.context.hass.services.async_call(
+                COVER_DOMAIN,
+                service,
+                service_data,
+                blocking=True,
+            ),
+            f"adaptive_cover {service} {service_data.get(ATTR_ENTITY_ID)}",
         )
+        try:
+            # shield: wolny napęd dokończy polecenie, a reszta rolet nie czeka.
+            async with asyncio.timeout(SERVICE_CALL_TIMEOUT):
+                await asyncio.shield(call)
+        except TimeoutError:
+            call.add_done_callback(_log_late_service_error(self.context.logger))
+            self.context.logger.warning(
+                "%s for %s still running after %s s; continuing",
+                service,
+                service_data.get(ATTR_ENTITY_ID),
+                SERVICE_CALL_TIMEOUT,
+            )
+
+
+def _log_late_service_error(logger):
+    """Zaloguj błąd polecenia, które skończyło się po limicie czasu."""
+
+    def _done(task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("Late cover service error: %s", task.exception())
+
+    return _done

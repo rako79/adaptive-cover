@@ -15,6 +15,7 @@ from homeassistant.const import Platform, __version__ as ha_version
 from homeassistant.core import HomeAssistant, ServiceCall, State
 from homeassistant.helpers.event import (
     async_track_state_change_event,
+    async_track_state_report_event,
 )
 from homeassistant.helpers.start import async_at_started
 import homeassistant.helpers.config_validation as cv
@@ -820,7 +821,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _end_time_entity,
         _window_entity,
         _rain_entity,
-        _wind_entity,
         _outside_temp_entity,
         _lux_entity,
         _irradiance_entity,
@@ -831,6 +831,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _entities.append(entity)
 
     _LOGGER.debug("Setting up entry %s", entry.data.get("name"))
+
+    if _wind_entity:
+        for track_wind in (
+            async_track_state_change_event,
+            async_track_state_report_event,
+        ):
+            entry.async_on_unload(
+                track_wind(hass, _wind_entity, coordinator.async_check_wind_report)
+            )
 
     entry.async_on_unload(
         async_track_state_change_event(
@@ -852,6 +861,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Jedno przeliczenie z odtworzonymi przełącznikami; przed startem runtime bez ruchu.
+    await coordinator.async_refresh()
 
     async def _runtime_startup_complete(_hass: HomeAssistant) -> None:
         coordinator.schedule_runtime_initialization()

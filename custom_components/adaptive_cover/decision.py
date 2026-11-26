@@ -8,6 +8,58 @@ from math import isfinite
 from typing import Any
 
 COLD_PROTECTION_HYSTERESIS = 1.0
+WIND_MAX_SAMPLE_GAP = timedelta(minutes=2)
+
+
+@dataclass(slots=True)
+class WindConfirmation:
+    """Potwierdzaj wiatr wyłącznie na podstawie kolejnych raportów czujnika."""
+
+    required_samples: int
+    threshold: float
+    samples: int = 0
+    last_report_at: datetime | None = None
+    last_speed: float | None = None
+
+    @property
+    def blocks_opening(self) -> bool:
+        """Po starcie lub utracie czujnika czekaj na poprawny, spokojny raport."""
+        return self.last_speed is None or self.last_speed > self.threshold
+
+    def seed(self, speed: float | None) -> None:
+        """Przyjmij bieżący spokojny odczyt przy starcie; silny wiatr czeka na raporty."""
+        if self.last_speed is None and speed is not None and speed <= self.threshold:
+            self.last_speed = speed
+
+    def record(self, speed: float | None, reported_at: datetime) -> bool:
+        """Zwróć, czy nowy odczyt włączył lub zwolnił ochronę."""
+        previous = self.last_report_at
+        if previous is not None and reported_at <= previous:
+            return False
+        self.last_report_at = reported_at
+        self.last_speed = speed
+        was_active = self.samples >= self.required_samples
+        if speed is None:
+            # Utrata odczytu nie oznacza, że potwierdzony silny wiatr ustał.
+            if not was_active:
+                self.samples = 0
+        elif speed <= self.threshold:
+            self.samples = 0
+        elif not was_active:
+            if previous is not None and reported_at - previous > WIND_MAX_SAMPLE_GAP:
+                self.samples = 0
+            self.samples += 1
+        return was_active != (self.samples >= self.required_samples)
+
+    def samples_at(self, now: datetime) -> int:
+        """Nie pokazuj przedawnionej serii oczekującej na potwierdzenie."""
+        if (
+            self.samples < self.required_samples
+            and self.last_report_at is not None
+            and now - self.last_report_at > WIND_MAX_SAMPLE_GAP
+        ):
+            return 0
+        return self.samples
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +192,8 @@ SCHEDULE_EXEMPT_DECISION_CODES = frozenset(
         "cold_protection",
         "dawn_protection",
         "strict_sun_block",
+        "timed_end",
+        "night_purge_end",
     }
 )
 EMERGENCY_DECISION_CODES = frozenset({"rain_detected", "wind_detected"})

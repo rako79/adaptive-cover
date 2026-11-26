@@ -254,6 +254,7 @@ class AdaptiveCoverManager:
                 entity_id,
                 allow_reset,
             )
+            self._persist_manual_overrides()
             return
         self.logger.debug(
             "Already manual control time specified for %s, reset is not "
@@ -289,6 +290,33 @@ class AdaptiveCoverManager:
         self.manual_control_until.pop(entity_id, None)
         self.set_status(entity_id, "auto", "manual_override_reset")
         self.logger.debug("Reset manual override for %s", entity_id)
+        self._persist_manual_overrides()
+
+    def restore_manual_overrides(
+        self,
+        overrides: dict[str, tuple[dt.datetime, dt.datetime]],
+        covers: list[str],
+    ) -> None:
+        """Przywróć niewygasłe przejęcia po restarcie lub przeładowaniu."""
+        now = dt.datetime.now(dt.UTC)
+        for entity_id, (since, until) in overrides.items():
+            if entity_id in covers and until > now:
+                self.mark_manual_control(entity_id)
+                self.manual_control_time[entity_id] = since
+                self.manual_control_until[entity_id] = until
+        self._persist_manual_overrides()
+
+    def _persist_manual_overrides(self) -> None:
+        """Przekaż aktywne przejęcia do trwałego magazynu wpisu."""
+        if self.learner is None:
+            return
+        self.learner.remember_manual_overrides(
+            {
+                entity_id: (since, self.manual_control_until[entity_id])
+                for entity_id, since in self.manual_control_time.items()
+                if entity_id in self.manual_control_until
+            }
+        )
 
     def is_cover_manual(self, entity_id: str) -> bool:
         """Sprawdź, czy roleta jest sterowana ręcznie."""

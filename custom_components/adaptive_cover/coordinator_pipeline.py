@@ -27,7 +27,7 @@ from .decision import (
     DecisionResult,
     apply_runtime_policies,
     decision_priority,
-    inverse_state,
+    position_requires_move,
 )
 from .models import AdaptiveCoverData, RefreshTrigger, StateChangedData
 from .options import normalize_options
@@ -48,6 +48,8 @@ class UpdateCycle:
 
 class CoordinatorPipelineMixin:
     """Orkiestruj krótkie fazy jednego odświeżenia."""
+
+    _deferred_scheduled_close: tuple[str, dt.datetime] | None = None
 
     async def async_run_update_pipeline(self) -> AdaptiveCoverData:
         """Wykonaj pełny przebieg obliczeń, wykonania i publikacji."""
@@ -237,16 +239,23 @@ class CoordinatorPipelineMixin:
     def _apply_scheduled_close_decision(self, cycle: UpdateCycle) -> None:
         """Dodaj termin zamknięcia do arbitra przed wykonaniem ruchu."""
         decision_code = self._scheduled_close_code(cycle)
+        now = dt_util.utcnow()
+        pending = self._deferred_scheduled_close
+        if decision_code is not None and not self._diagnostic_refresh:
+            self._deferred_scheduled_close = (decision_code, now)
+        elif pending is not None:
+            # W oknie harmonogramu sterowanie dzienne przejmuje zaległe zamknięcie,
+            # także gdy koniec wietrzenia wypada po starcie (np. start 00:00, koniec 07:00).
+            if not self.check_adaptive_time and now - pending[1] < dt.timedelta(days=1):
+                decision_code = pending[0]
+            elif not self._diagnostic_refresh:
+                self._deferred_scheduled_close = None
         if decision_code is None:
             return
         sunset_position = cycle.options.get(CONF_SUNSET_POS)
         if sunset_position is None:
             return
-        target = (
-            inverse_state(sunset_position)
-            if self._inverse_state
-            else int(sunset_position)
-        )
+        target = self.motor_position(sunset_position)
         reason = (
             "Osiągnięto skonfigurowany koniec harmonogramu."
             if decision_code == "timed_end"
@@ -312,11 +321,19 @@ class CoordinatorPipelineMixin:
             RefreshTrigger.TIMED_END,
             RefreshTrigger.NIGHT_PURGE_DEADLINE,
         }
-        if cycle.triggers & timed:
+        if self.last_decision.code in {"timed_end", "night_purge_end"}:
             await self.async_handle_timed_refresh(cycle.state, cycle.options)
+            if self.control_toggle and all(
+                (current := self._get_current_position(entity)) is not None
+                and not position_requires_move(
+                    current, self._target_for_entity(entity, cycle.state), self.min_change
+                )
+                for entity in self.entities
+            ):
+                self._deferred_scheduled_close = None
         elif RefreshTrigger.FIRST_REFRESH in cycle.triggers:
             await self.async_handle_first_refresh(cycle.state, cycle.options)
-        elif cycle.triggers & {RefreshTrigger.ENTITY_STATE, RefreshTrigger.PERIODIC}:
+        elif cycle.triggers & (timed | {RefreshTrigger.ENTITY_STATE, RefreshTrigger.PERIODIC}):
             await self.async_handle_state_change(cycle.state, cycle.options)
         self._last_refresh_triggers = frozenset(cycle.triggers)
         self._active_refresh_triggers = frozenset()
@@ -414,6 +431,7 @@ class CoordinatorPipelineMixin:
             "blind_spot": options.get(CONF_BLIND_SPOT_ELEVATION),
             "dry_run": self.dry_run_toggle,
             "window_open": self.is_window_open,
+            "window_state_unknown": self.window_state_unknown,
             "window_open_action": self.window_open_action,
             "window_open_position": self.window_open_position,
             "night_purge_end_time": options.get(
@@ -482,6 +500,7 @@ class CoordinatorPipelineMixin:
             "rain_rate": climate.rain_value,
             "weather_state": climate.weather_state,
             "wind_speed": climate.current_wind_speed,
+            "wind_comfort_opening_blocked": self.wind_opening_unconfirmed,
         }
 
     def _build_adaptive_data(
